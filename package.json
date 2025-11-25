@@ -1,0 +1,76 @@
+{
+  "name": "@predictdotfun/sdk",
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "A TypeScript SDK to help developers interface with the Predict's protocol.",
+  "homepage": "https://predict.fun/",
+  "bugs": "https://github.com/PredictDotFun/sdk/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PredictDotFun/sdk.git"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "prepublishOnly": "yarn build",
+    "prebuild": "rm -rf ./src/typechain ./dist",
+    "build:ts": "tsc --project tsconfig.build.json",
+    "build:typechain": "typechain --target ethers-v6 --out-dir src/typechain src/abis/*.json",
+    "build": "yarn build:typechain && yarn build:ts",
+    "lint": "eslint \"**/*.{js,ts}\"",
+    "prepare": "husky",
+    "typecheck": "tsc --project tsconfig.build.json --noEmit",
+    "format:check": "prettier --check \"**/*.{js,ts,json,yaml,yml,md}\"",
+    "format:write": "prettier --write \"**/*.{js,ts,json,yaml,yml,md}\"",
+    "release": "release-it --only-version",
+    "test": "yarn build:typechain && jest"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json,yaml,yml}": "yarn format:write"
+  },
+  "peerDependencies": {
+    "ethers": "^6.15.0"
+  },
+  "dependencies": {
+    "ethers-multicall-provider": "6.5.0"
+  },
+  "devDependencies": {
+    "@eslint/compat": "^1.4.1",
+    "@eslint/js": "^9.39.1",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.3",
+    "@typescript-eslint/parser": "^8.46.3",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jest": "^29.0.1",
+    "eslint-plugin-jest-formatting": "^3.1.0",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-unicorn": "^62.0.0",
+    "ethers": "^6.15.0",
+    "fast-check": "^4.3.0",
+    "husky": "^9.1.7",
+    "jest": "^30.2.0",
+    "lint-staged": "^16.2.6",
+    "prettier": "^3.6.2",
+    "release-it": "^19.0.6",
+    "ts-jest": "^29.4.5",
+    "ts-node": "^10.9.2",
+    "typechain": "^8.3.2",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": "^18.18.0 || ^20.9.0 || >=21.1.0",
+    "yarn": ">=1.22.11"
+  }
+}
