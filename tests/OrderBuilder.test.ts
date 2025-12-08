@@ -22,7 +22,7 @@ describe("OrderBuilder", () => {
   let orderBuilder: OrderBuilder;
 
   beforeAll(async () => {
-    orderBuilder = await OrderBuilder.make(ChainId.BnbTestnet, mockSigner, { generateSalt });
+    orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, mockSigner, { generateSalt });
   });
 
   describe("getLimitOrderAmounts", () => {
@@ -101,8 +101,8 @@ describe("OrderBuilder", () => {
     it("should calculate correct amounts for BUY order by value", () => {
       const result = orderBuilder.getMarketOrderAmounts({ side: Side.BUY, valueWei: toWei(1) }, mockBook);
 
-      expect(result.makerAmount).toBe(toWei(1)); // 1 usdb offered
-      expect(result.pricePerShare).toBe(toWei(0.5)); // 0.5 usdb per share
+      expect(result.makerAmount).toBe(toWei(1)); // 1 usdt offered
+      expect(result.pricePerShare).toBe(toWei(0.5)); // 0.5 usdt per share
       expect(result.takerAmount).toBe(toWei(2)); // 2 shares consumed
     });
 
@@ -161,7 +161,7 @@ describe("OrderBuilder", () => {
       const result = orderBuilder.getMarketOrderAmounts(
         {
           side: Side.BUY,
-          quantityWei: 1_000_000_000_000_000_000n, // 1 usdb
+          quantityWei: 1_000_000_000_000_000_000n, // 1 usdt
         },
         {
           updateTimestampMs: Date.now(),
@@ -259,26 +259,68 @@ describe("OrderBuilder", () => {
     });
   });
 
+  const _correctTypedDataTest = (isNegRisk: boolean, isYieldBearing: boolean) => {
+    const order = orderBuilder.buildOrder("LIMIT", {
+      side: Side.BUY,
+      nonce: "1",
+      signer: ZeroAddress,
+      tokenId: "123",
+      makerAmount: toWei(10),
+      takerAmount: toWei(5),
+      feeRateBps: 0,
+    });
+
+    const typedData = orderBuilder.buildTypedData(order, { isNegRisk, isYieldBearing });
+
+    const verifyingContract = isNegRisk
+      ? isYieldBearing
+        ? "0x8A289d458f5a134bA40015085A8F50Ffb681B41d"
+        : "0x365fb81bd4A24D6303cd2F19c349dE6894D8d58A"
+      : isYieldBearing
+        ? "0x6bEb5a40C032AFc305961162d8204CDA16DECFa5"
+        : "0x8BC070BEdAB741406F4B1Eb65A72bee27894B689";
+
+    expect(typedData.primaryType).toBe("Order");
+    expect(typedData.domain.name).toBe("predict.fun CTF Exchange");
+    expect(typedData.domain.verifyingContract).toBe(verifyingContract);
+    expect(typedData.domain.chainId).toBe(ChainId.BnbMainnet);
+    expect(typedData.message).toEqual(expect.objectContaining(order));
+  };
+
   describe("buildTypedData", () => {
-    it("should build typed data correctly", () => {
-      const order = orderBuilder.buildOrder("LIMIT", {
-        side: Side.BUY,
-        nonce: "1",
-        signer: ZeroAddress,
-        tokenId: "123",
-        makerAmount: toWei(10),
-        takerAmount: toWei(5),
-        feeRateBps: 0,
-      });
+    it("should build typed data correctly (neg risk, yield bearing)", () => {
+      _correctTypedDataTest(true, true);
+    });
 
-      const typedData = orderBuilder.buildTypedData(order, { isNegRisk: false });
+    it("should build typed data correctly (neg risk, non-yield bearing)", () => {
+      _correctTypedDataTest(true, false);
+    });
 
-      expect(typedData.primaryType).toBe("Order");
-      expect(typedData.domain.name).toBe("predict.fun CTF Exchange");
-      expect(typedData.domain.chainId).toBe(ChainId.BnbTestnet);
-      expect(typedData.message).toEqual(expect.objectContaining(order));
+    it("should build typed data correctly (non neg risk, yield bearing)", () => {
+      _correctTypedDataTest(false, true);
+    });
+
+    it("should build typed data correctly (non neg risk, non-yield bearing)", () => {
+      _correctTypedDataTest(false, false);
     });
   });
+
+  const _signerIsNotProvidedTest = async (isNegRisk: boolean, isYieldBearing: boolean) => {
+    const orderBuilderWithoutSigner = await OrderBuilder.make(ChainId.BnbMainnet);
+    const order = orderBuilderWithoutSigner.buildOrder("LIMIT", {
+      side: Side.BUY,
+      nonce: "1",
+      signer: ZeroAddress,
+      tokenId: "123",
+      makerAmount: toWei(10),
+      takerAmount: toWei(5),
+      feeRateBps: 0,
+    });
+
+    const typedData = orderBuilderWithoutSigner.buildTypedData(order, { isNegRisk, isYieldBearing });
+
+    await expect(orderBuilderWithoutSigner.signTypedDataOrder(typedData)).rejects.toThrow(MissingSignerError);
+  };
 
   describe("signTypedDataOrder", () => {
     it("should sign the order correctly", async () => {
@@ -292,7 +334,7 @@ describe("OrderBuilder", () => {
         feeRateBps: 0,
       });
 
-      const typedData = orderBuilder.buildTypedData(order, { isNegRisk: false });
+      const typedData = orderBuilder.buildTypedData(order, { isNegRisk: false, isYieldBearing: false });
       const signedOrder = await orderBuilder.signTypedDataOrder(typedData);
 
       expect(signedOrder).toEqual({
@@ -301,42 +343,57 @@ describe("OrderBuilder", () => {
       });
     });
 
-    it("should throw MissingSignerError if signer is not provided", async () => {
-      const orderBuilderWithoutSigner = await OrderBuilder.make(ChainId.BnbTestnet);
-      const order = orderBuilderWithoutSigner.buildOrder("LIMIT", {
-        side: Side.BUY,
-        nonce: "1",
-        signer: ZeroAddress,
-        tokenId: "123",
-        makerAmount: toWei(10),
-        takerAmount: toWei(5),
-        feeRateBps: 0,
-      });
+    it("should throw MissingSignerError if signer is not provided (neg risk, yield bearing)", async () => {
+      _signerIsNotProvidedTest(true, true);
+    });
 
-      const typedData = orderBuilderWithoutSigner.buildTypedData(order, { isNegRisk: false });
+    it("should throw MissingSignerError if signer is not provided neg risk, non-yield bearing)", async () => {
+      _signerIsNotProvidedTest(true, false);
+    });
 
-      await expect(orderBuilderWithoutSigner.signTypedDataOrder(typedData)).rejects.toThrow(MissingSignerError);
+    it("should throw MissingSignerError if signer is not provided (non neg risk, yield bearing)", async () => {
+      _signerIsNotProvidedTest(false, true);
+    });
+
+    it("should throw MissingSignerError if signer is not provided (non neg risk, non-yield bearing)", async () => {
+      _signerIsNotProvidedTest(false, false);
     });
   });
 
+  const _correctTypedDataHashTest = (isNegRisk: boolean, isYieldBearing: boolean) => {
+    const order = orderBuilder.buildOrder("LIMIT", {
+      side: Side.BUY,
+      nonce: "1",
+      signer: ZeroAddress,
+      tokenId: "123",
+      makerAmount: toWei(10),
+      takerAmount: toWei(5),
+      feeRateBps: 0,
+    });
+
+    const typedData = orderBuilder.buildTypedData(order, { isNegRisk, isYieldBearing });
+    const hash = orderBuilder.buildTypedDataHash(typedData);
+
+    expect(typeof hash).toBe("string");
+    expect(hash.startsWith("0x")).toBe(true);
+    expect(hash.length).toBe(66); // 32 bytes + '0x'
+  };
+
   describe("buildTypedDataHash", () => {
-    it("should build the typed data hash correctly", () => {
-      const order = orderBuilder.buildOrder("LIMIT", {
-        side: Side.BUY,
-        nonce: "1",
-        signer: ZeroAddress,
-        tokenId: "123",
-        makerAmount: toWei(10),
-        takerAmount: toWei(5),
-        feeRateBps: 0,
-      });
+    it("should build the typed data hash correctly (neg risk, yield bearing)", () => {
+      _correctTypedDataHashTest(true, true);
+    });
 
-      const typedData = orderBuilder.buildTypedData(order, { isNegRisk: false });
-      const hash = orderBuilder.buildTypedDataHash(typedData);
+    it("should build the typed data hash correctly (neg risk, non-yield bearing)", () => {
+      _correctTypedDataHashTest(true, false);
+    });
 
-      expect(typeof hash).toBe("string");
-      expect(hash.startsWith("0x")).toBe(true);
-      expect(hash.length).toBe(66); // 32 bytes + '0x'
+    it("should build the typed data hash correctly (non neg risk, yield bearing)", () => {
+      _correctTypedDataHashTest(false, true);
+    });
+
+    it("should build the typed data hash correctly (non neg risk, non-yield bearing)", () => {
+      _correctTypedDataHashTest(false, false);
     });
   });
 });

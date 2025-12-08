@@ -15,7 +15,7 @@ export type LogLevel = "ERROR" | "WARN" | "INFO" | "DEBUG";
 export type BigIntString = string;
 export type Address = string;
 
-export type Currency = "USDB";
+export type Currency = "USDT";
 export type OrderStrategy = "MARKET" | "LIMIT";
 /** true represents an Ask, while false a Bid */
 export type QuoteType = boolean;
@@ -69,11 +69,19 @@ export interface OrderAmounts {
  */
 
 export interface Addresses {
+  YIELD_BEARING_CTF_EXCHANGE: Address;
+  YIELD_BEARING_NEG_RISK_CTF_EXCHANGE: Address;
+  YIELD_BEARING_NEG_RISK_ADAPTER: Address;
+  YIELD_BEARING_CONDITIONAL_TOKENS: Address;
+  YIELD_BEARING_NEG_RISK_CONDITIONAL_TOKENS: Address;
+
   CTF_EXCHANGE: Address;
   NEG_RISK_CTF_EXCHANGE: Address;
   NEG_RISK_ADAPTER: Address;
   CONDITIONAL_TOKENS: Address;
-  USDB: Address;
+  NEG_RISK_CONDITIONAL_TOKENS: Address;
+
+  USDT: Address;
   KERNEL: Address;
   ECDSA_VALIDATOR: Address;
 }
@@ -111,7 +119,7 @@ export interface Order {
   /**
    * The maker amount
    *
-   * For a BUY order, this represents the total `(price per asset * assets quantity)` collateral (e.g. USDB) being offered.
+   * For a BUY order, this represents the total `(price per asset * assets quantity)` collateral (e.g. USDT) being offered.
    * For a SELL order, this represents the total amount of CTF assets being offered.
    */
   makerAmount: BigIntString;
@@ -120,7 +128,7 @@ export interface Order {
    * The taker amount
    *
    * For a BUY order, this represents the total amount of CTF assets to be received.
-   * For a SELL order, this represents the total `(price per asset * assets quantity)` amount of collateral (e.g. USDB) to be received.
+   * For a SELL order, this represents the total `(price per asset * assets quantity)` amount of collateral (e.g. USDT) to be received.
    */
   takerAmount: BigIntString;
 
@@ -229,11 +237,19 @@ export interface Book {
  */
 
 export interface Contracts {
+  YIELD_BEARING_CTF_EXCHANGE: { contract: CTFExchange; codec: Interface };
+  YIELD_BEARING_NEG_RISK_CTF_EXCHANGE: { contract: NegRiskCtfExchange; codec: Interface };
+  YIELD_BEARING_NEG_RISK_ADAPTER: { contract: NegRiskAdapter; codec: Interface };
+  YIELD_BEARING_CONDITIONAL_TOKENS: { contract: ConditionalTokens; codec: Interface };
+  YIELD_BEARING_NEG_RISK_CONDITIONAL_TOKENS: { contract: ConditionalTokens; codec: Interface };
+
   CTF_EXCHANGE: { contract: CTFExchange; codec: Interface };
   NEG_RISK_CTF_EXCHANGE: { contract: NegRiskCtfExchange; codec: Interface };
   NEG_RISK_ADAPTER: { contract: NegRiskAdapter; codec: Interface };
   CONDITIONAL_TOKENS: { contract: ConditionalTokens; codec: Interface };
-  USDB: { contract: ERC20; codec: Interface };
+  NEG_RISK_CONDITIONAL_TOKENS: { contract: ConditionalTokens; codec: Interface };
+
+  USDT: { contract: ERC20; codec: Interface };
   KERNEL: { contract: Kernel; codec: Interface };
   ECDSA_VALIDATOR: { contract: ECDSAValidator; codec: Interface };
 }
@@ -265,18 +281,18 @@ export interface Erc1155Approval {
 
 export interface Erc20Approval {
   /**
-   * Check the allowance of the contract for the USDB tokens.
+   * Check the allowance of the contract for the USDT tokens.
    *
-   * @returns {Promise<bigint>} The allowance of the contract for the USDB tokens.
+   * @returns {Promise<bigint>} The allowance of the contract for the USDT tokens.
    *
    * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
    */
   allowance: () => Promise<bigint>;
 
   /**
-   * Approve the contract to transfer the USDB tokens.
+   * Approve the contract to transfer the USDT tokens.
    *
-   * @param {bigint} amount - The amount of USDB tokens to approve for, defaults to `MaxUint256`.
+   * @param {bigint} amount - The amount of USDT tokens to approve for, defaults to `MaxUint256`.
    * @returns {Promise<TransactionResult>} The transaction result.
    *
    * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
@@ -324,6 +340,8 @@ export interface CancelOrdersInput {
 }
 
 export interface CancelOrdersOptions {
+  isYieldBearing: boolean;
+  isNegRisk: boolean;
   /** Default: true */
   withValidation?: boolean;
 }

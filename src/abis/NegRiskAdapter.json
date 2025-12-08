@@ -3,11 +3,6 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_addressFinder",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
         "name": "_ctf",
         "type": "address"
       },
@@ -92,6 +87,11 @@
   },
   {
     "inputs": [],
+    "name": "Unauthorized",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "UnexpectedCollateralToken",
     "type": "error"
   },
@@ -101,11 +101,37 @@
       {
         "indexed": false,
         "internalType": "bool",
-        "name": "enabled",
+        "name": "gated",
         "type": "bool"
       }
     ],
-    "name": "AccessControlEnabled",
+    "name": "IsConvertPositionsGatedUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "gated",
+        "type": "bool"
+      }
+    ],
+    "name": "IsMergePositionsGatedUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "gated",
+        "type": "bool"
+      }
+    ],
+    "name": "IsSplitPositionGatedUpdated",
     "type": "event"
   },
   {
@@ -231,6 +257,37 @@
       }
     ],
     "name": "PayoutRedemption",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "canSplitPosition",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "canMergePositions",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "canConvertPositions",
+        "type": "bool"
+      }
+    ],
+    "name": "PermissionsUpdated",
     "type": "event"
   },
   {
@@ -410,45 +467,6 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "USDB",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "WETH",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "accessControlEnabled",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "address",
@@ -539,24 +557,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "wethReceiver",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "usdbReceiver",
-        "type": "address"
-      }
-    ],
-    "name": "claimYield",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -785,6 +785,32 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "isConvertPositionsGated",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "isMergePositionsGated",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -793,6 +819,19 @@
       }
     ],
     "name": "isOperator",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "isSplitPositionGated",
     "outputs": [
       {
         "internalType": "bool",
@@ -1112,11 +1151,65 @@
     "inputs": [
       {
         "internalType": "bool",
-        "name": "enabled",
+        "name": "gated",
         "type": "bool"
       }
     ],
-    "name": "setAccessControlEnabled",
+    "name": "setIsConvertPositionsGated",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bool",
+        "name": "gated",
+        "type": "bool"
+      }
+    ],
+    "name": "setIsMergePositionsGated",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bool",
+        "name": "gated",
+        "type": "bool"
+      }
+    ],
+    "name": "setIsSplitPositionGated",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "_canSplitPosition",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "_canMergePositions",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "_canConvertPositions",
+        "type": "bool"
+      }
+    ],
+    "name": "setPermissions",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1173,6 +1266,35 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "userPermissions",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "canSplitPosition",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "canMergePositions",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "canConvertPositions",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "vault",
     "outputs": [
@@ -1190,7 +1312,7 @@
     "name": "wcol",
     "outputs": [
       {
-        "internalType": "contract BlastWrappedCollateral",
+        "internalType": "contract WrappedCollateral",
         "name": "",
         "type": "address"
       }

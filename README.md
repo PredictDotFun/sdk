@@ -2,15 +2,16 @@ A TypeScript SDK to help developers interface with the Predict's protocol.
 
 #### Sections:
 
-- [**How to install the SDK**](#how-to-install-the-sdk)
-- [**How to set approvals**](#how-to-set-approvals)
-- [**How to use a Predict account**](#how-to-use-a-predict-account)
-- [**How to create an order**](#how-to-create-a-limit-order-recommended)
-- [**How to redeem positions**](#how-to-redeem-positions)
-- [**How to check USDB balance**](#how-to-check-usdb-balance)
-- [**How to interface with contracts**](#how-to-interface-with-contracts)
-- [**How to cancel orders**](#how-to-cancel-orders)
-- [**License**](#license)
+- [How to install the SDK](#how-to-install-the-sdk)
+- [How to set approvals](#how-to-set-approvals)
+- [How to use a Predict account](#how-to-use-a-predict-account)
+- [How to create a LIMIT order _(recommended)_](#how-to-create-a-limit-order-recommended)
+- [How to create a MARKET order](#how-to-create-a-market-order)
+- [How to redeem positions](#how-to-redeem-positions)
+- [How to check USDT balance](#how-to-check-usdt-balance)
+- [How to interface with contracts](#how-to-interface-with-contracts)
+- [How to cancel orders](#how-to-cancel-orders)
+- [License](#license)
 
 ## How to install the SDK
 
@@ -26,11 +27,15 @@ npm install @predictdotfun/sdk ethers
 
 See the [`OrderBuilder`](./src/OrderBuilder.ts) class for more in-depth details on each function.
 
+## Predict Account
+
+Predict supports interacting with the protocol using either a traditional Externally Owned Account (EOA) or a Smart Wallet ("Predict Account"). If you use the web app, a Smart Wallet is automatically created for you. To interact with your Smart Wallet programmatically using the SDK, follow the example shown in [How to use a Predict account](#how-to-use-a-predict-account).
+
 ## How to set approvals
 
-Before trading, you need to set approvals for ERC-1155 (`ConditionalTokens`) and ERC-20 (`USDB`). This can be achieved by sending a transaction to the respective contracts (see the [Contracts](#contracts) section) and approving both the `CTF_EXCHANGE` and the `NEG_RISK_CTF_EXCHANGE` or via the SDK utils.
+Before trading, you need to set approvals for ERC-1155 (`ConditionalTokens`) and ERC-20 (`USDT`). This can be achieved by sending a transaction to the respective contracts (see the [Contracts](#contracts) section) and approving both the `CTF_EXCHANGE` and the `NEG_RISK_CTF_EXCHANGE` or via the SDK utils.
 
-**Contracts**: The current deployed contracts can be found either in the [`Constants.ts`](./src/Constants.ts#26) file or in the [Deployed Contracts](https://docs.predict.fun/developers/deployed-contracts) documentation.
+**Contracts**: The current deployed contracts can be found either in the [`Constants.ts`](./src/Constants.ts#32) file or in the [Deployed Contracts](https://docs.predict.fun/developers/deployed-contracts) documentation.
 
 The following example demonstrates how to set the necessary approvals using the SDK utils.
 
@@ -44,15 +49,15 @@ const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
 // The main function which initiates the OrderBuilder (only once per signer) and then provides it as dependency to other util functions
 async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
   // Call an helper function to set the approvals and provide the OrderBuilder instance.
-  await setApprovals(builder);
+  await setApprovals(orderBuilder);
 }
 
-async function setApprovals(builder: OrderBuilder) {
+async function setApprovals(orderBuilder: OrderBuilder) {
   // Set all the approval needed within the protocol
-  const result = await builder.setApprovals();
+  const result = await orderBuilder.setApprovals();
 
   // Check if the approvals were set successfully
   if (!result.success) {
@@ -62,8 +67,6 @@ async function setApprovals(builder: OrderBuilder) {
 ```
 
 ## How to use a Predict account
-
-In the previous version of Predict, all users (including EOAs), would receive a smart wallet when interacting via the web app. In the current version, EOAs no longer receive a smart wallet account and as such, they interact with the on-chain protocol directly.
 
 Here's an example of how to use a Predict account to create/cancel orders and set approvals.
 
@@ -89,23 +92,24 @@ const signer = new Wallet(process.env.PRIVY_WALLET_PRIVATE_KEY);
 
 // The main function which initiates the OrderBuilder (only once per signer) and then provides it as dependency to other util functions
 async function main() {
-  // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  // Create a new instance of the OrderBuilder class with the predictAccount option
+  // Note: This should only be done once per signer
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer, {
+    predictAccount: "PREDICT_ACCOUNT_ADDRESS", // Your deposit address from account settings
+  });
 
   // Call an helper function to create the order and provide the OrderBuilder instance
-  await createOrder(builder);
+  await createOrder(orderBuilder);
 }
 
-async function createOrder(builder: OrderBuilder) {
+async function createOrder(orderBuilder: OrderBuilder) {
   // Step 1. Set approvals and define the order params as usual
 
-  // Step 2. Create the order by using the Predict account address as both the `signer` and `maker`
-  const order = builder.buildOrder("LIMIT", {
-    maker: "PREDICT_ACCOUNT_ADDRESS",
-    signer: "PREDICT_ACCOUNT_ADDRESS",
+  // Step 2. Create the order (maker and signer are automatically set to the predictAccount)
+  const order = orderBuilder.buildOrder("LIMIT", {
     side: Side.BUY, // Equivalent to 0
     tokenId: "OUTCOME_ON_CHAIN_ID", // This can be fetched via the API or on-chain
-    makerAmount, // 0.4 USDB * 10 shares (in wei)
+    makerAmount, // 0.4 USDT * 10 shares (in wei)
     takerAmount, // 10 shares (in wei)
     nonce: 0n,
     feeRateBps: 0, // Should be fetched via the `GET /markets` endpoint
@@ -141,19 +145,19 @@ const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
 // The main function which initiates the OrderBuilder (only once per signer) and then provides it as dependency to other util functions
 async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
   // Call an helper function to create the order and provide the OrderBuilder instance
-  await createOrder(builder);
+  await createOrder(orderBuilder);
 }
 
-async function createOrder(builder: OrderBuilder) {
+async function createOrder(orderBuilder: OrderBuilder) {
   /**
    * NOTE: You can also call `setApprovals` once per wallet.
    */
 
   // Set all the approval needed within the protocol (if needed)
-  const result = await builder.setApprovals();
+  const result = await orderBuilder.setApprovals();
 
   // Check if the approvals were set successfully
   if (!result.success) {
@@ -161,32 +165,32 @@ async function createOrder(builder: OrderBuilder) {
   }
 
   // Simple helper function to calculate the amounts for a `LIMIT` order
-  const { pricePerShare, makerAmount, takerAmount } = builder.getLimitOrderAmounts({
+  const { lastPrice, pricePerShare, makerAmount, takerAmount } = orderBuilder.getLimitOrderAmounts({
     side: Side.BUY,
-    pricePerShareWei: 400000000000000000n, // 0.4 USDB (in wei)
+    pricePerShareWei: 400000000000000000n, // 0.4 USDT (in wei)
     quantityWei: 10000000000000000000n, // 10 shares (in wei)
   });
 
   // Build a limit order (if you are using a Predict account replace `signer.address` with your deposit address)
-  const order = builder.buildOrder("LIMIT", {
+  const order = orderBuilder.buildOrder("LIMIT", {
     maker: signer.address,
     signer: signer.address,
     side: Side.BUY, // Equivalent to 0
     tokenId: "OUTCOME_ON_CHAIN_ID", // This can be fetched via the API or on-chain
-    makerAmount, // 0.4 USDB * 10 shares (in wei)
+    makerAmount, // 0.4 USDT * 10 shares (in wei)
     takerAmount, // 10 shares (in wei)
     nonce: 0n,
     feeRateBps: 0, // Should be fetched via the `GET /markets` endpoint
   });
 
-  // Build typed data for the order (isNegRisk can be fetched via the API)
-  const typedData = builder.buildTypedData(order, { isNegRisk: true });
+  // Build typed data for the order (isNegRisk and isYieldBearing can be fetched via the API)
+  const typedData = orderBuilder.buildTypedData(order, { isNegRisk: true, isYieldBearing: true });
 
   // Sign the order by providing the typedData of the order
-  const signedOrder = await builder.signTypedDataOrder(typedData);
+  const signedOrder = await orderBuilder.signTypedDataOrder(typedData);
 
   // Compute the order's hash
-  const hash = builder.buildTypedDataHash(typedData);
+  const hash = orderBuilder.buildTypedDataHash(typedData);
 
   // Example structure required to create an order via Predict's API
   const createOrderBody = {
@@ -224,13 +228,13 @@ const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
 // The main function which initiates the OrderBuilder (only once per signer) and then provides it as dependency to other util functions
 async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
   // Call an helper function to create the order and provide the OrderBuilder instance
-  await createOrder(builder);
+  await createOrder(orderBuilder);
 }
 
-async function createOrder(builder: OrderBuilder) {
+async function createOrder(orderBuilder: OrderBuilder) {
   // Fetch the orderbook for the specific market via `GET orderbook/{marketId}`
   const book = {};
 
@@ -239,7 +243,7 @@ async function createOrder(builder: OrderBuilder) {
    */
 
   // Set all the approval needed within the protocol (if needed)
-  const result = await builder.setApprovals();
+  const result = await orderBuilder.setApprovals();
 
   // Check if the approvals were set successfully
   if (!result.success) {
@@ -247,7 +251,7 @@ async function createOrder(builder: OrderBuilder) {
   }
 
   // Helper function to calculate the amounts for a `MARKET` order
-  const { pricePerShare, makerAmount, takerAmount } = builder.getMarketOrderAmounts(
+  const { lastPrice, pricePerShare, makerAmount, takerAmount } = orderBuilder.getMarketOrderAmounts(
     {
       side: Side.SELL,
       quantityWei: 10000000000000000000n, // 10 shares (in wei) e.g. parseEther("10")
@@ -256,25 +260,25 @@ async function createOrder(builder: OrderBuilder) {
   );
 
   // Build a limit order (if you are using a Predict account replace `signer.address` with your deposit address)
-  const order = builder.buildOrder("MARKET", {
+  const order = orderBuilder.buildOrder("MARKET", {
     maker: signer.address,
     signer: signer.address,
     side: Side.SELL, // Equivalent to 1
     tokenId: "OUTCOME_ON_CHAIN_ID", // This can be fetched via the API or on-chain
     makerAmount, // 10 shares (in wei)
-    takerAmount, // 0.4 USDB * 10 shares (in wei)
+    takerAmount, // 0.4 USDT * 10 shares (in wei)
     nonce: 0n,
     feeRateBps: 0, // Should be fetched via the `GET /markets` endpoint
   });
 
-  // Build typed data for the order (isNegRisk can be fetched via the API)
-  const typedData = builder.buildTypedData(order, { isNegRisk: false });
+  // Build typed data for the order (isNegRisk and isYieldBearing can be fetched via the API)
+  const typedData = orderBuilder.buildTypedData(order, { isNegRisk: false, isYieldBearing: false });
 
   // Sign the order by providing the typedData of the order
-  const signedOrder = await builder.signTypedDataOrder(typedData);
+  const signedOrder = await orderBuilder.signTypedDataOrder(typedData);
 
   // Compute the order's hash
-  const hash = builder.buildTypedDataHash(typedData);
+  const hash = orderBuilder.buildTypedDataHash(typedData);
 
   // Example structure required to create an order via Predict's API
   const createOrderBody = {
@@ -282,7 +286,7 @@ async function createOrder(builder: OrderBuilder) {
       order: { ...signedOrder, hash },
       pricePerShare,
       strategy: "MARKET",
-      slippageBps: "2000", // Only used for `MARKET` orders, in this example it's 0.2%
+      slippageBps: "200", // Only used for `MARKET` orders, in this example it's 2%
     },
   };
 }
@@ -309,17 +313,17 @@ const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
 // Then provides it as dependency to other functions
 async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
-  await redeemPositions(builder);
-  await redeemNegRiskPositions(builder);
+  await redeemPositions(orderBuilder);
+  await redeemNegRiskPositions(orderBuilder);
 }
 
 async function redeemPositions(orderBuilder: OrderBuilder) {
   const conditionId = "CONDITION_ID_FROM_API"; // A hash string
   const indexSet = "INDEX_SET_FROM_API"; // 1 or 2 based on the position you want to redeem
 
-  const result = await builder.redeemPositions(conditionId, indexSet);
+  const result = await orderBuilder.redeemPositions(conditionId, indexSet);
 
   if (result.success) {
     console.log("Positions redeemed successfully:", result.receipt);
@@ -333,7 +337,7 @@ async function redeemNegRiskPositions(orderBuilder: OrderBuilder) {
   const indexSet = "INDEX_SET_FROM_API"; // 1 or 2 based on the position you want to redeem
   const amount = "POSITION_AMOUNT_FROM_API"; // The amount to redeem, usually the max
 
-  const result = await builder.redeemNegRiskPositions(conditionId, indexSet, amount);
+  const result = await orderBuilder.redeemNegRiskPositions(conditionId, indexSet, amount);
 
   if (result.success) {
     console.log("Positions redeemed successfully:", result.receipt);
@@ -343,9 +347,9 @@ async function redeemNegRiskPositions(orderBuilder: OrderBuilder) {
 }
 ```
 
-## How to check USDB balance
+## How to check USDT balance
 
-The method `balanceOf` allows to easily check the current USDB balance of the connected signer.
+The method `balanceOf` allows to easily check the current USDT balance of the connected signer.
 
 ```typescript
 import { Wallet } from "ethers";
@@ -358,14 +362,14 @@ const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
 // Then provides it as dependency to other functions
 async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
-  await checkBalance(builder);
+  await checkBalance(orderBuilder);
 }
 
 async function checkBalance(orderBuilder: OrderBuilder) {
   // Fetch the current account/wallet balance in wei
-  const balanceWei = await builder.balanceOf();
+  const balanceWei = await orderBuilder.balanceOf();
 
   // Example check
   if (balanceWei >= orderAmountWei) {
@@ -381,7 +385,7 @@ async function checkBalance(orderBuilder: OrderBuilder) {
 To facilitate interactions with Predict's contracts we expose the necessary instances of each contract, including ABIs and types.
 
 ```typescript
-import { OrderBuilder } from "@predictdotfun/sdk";
+import { OrderBuilder, ChainId } from "@predictdotfun/sdk";
 import { Wallet } from "ethers";
 
 // Create a wallet to interact with on-chain contracts
@@ -391,9 +395,9 @@ const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
 // Then provides it as dependency to other functions
 async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
-  await callContracts(builder);
+  await callContracts(orderBuilder);
 }
 
 async function callContracts(orderBuilder: OrderBuilder) {
@@ -404,7 +408,7 @@ async function callContracts(orderBuilder: OrderBuilder) {
 
   // You can now call contract functions (the actual contract instance is within `contract`)
   // The `codec` property contains the ethers Interface, useful to encode and decode data
-  const balance = await orderBuilder.contracts["USDB"].contract.balanceOf(signer.address);
+  const balance = await orderBuilder.contracts["USDT"].contract.balanceOf(signer.address);
 }
 ```
 
@@ -421,6 +425,7 @@ import {
   // Contract Interfaces
   CTFExchange,
   ConditionalTokens,
+  YieldBearingConditionalTokens,
   NegRiskAdapter,
   NegRiskCtfExchange,
   ERC20,
@@ -430,6 +435,7 @@ import {
   NegRiskCtfExchangeAbi,
   NegRiskAdapterAbi,
   ConditionalTokensAbi,
+  YieldBearingConditionalTokensAbi,
   ERC20Abi,
 
   // Order builder
@@ -443,8 +449,8 @@ Here's an example on how to cancel orders via the SDK
 
 1. **Fetch Orders**: Retrieve your open orders using `GET /orders`.
 2. **Cancel Orders off chain**: Call `POST /orders/cancel` with orderIds and cancel orders from the orderbook
-3. **Group by `isNegRisk`**: Separate orders based on the `isNegRisk` property.
-4. **Cancel Orders**: Call the specific cancel function based on the order(s) type (`isNegRisk`).
+3. **Group by `isNegRisk` and `isYieldBearing`**: Separate orders based on the `isNegRisk` and `isYieldBearing` properties.
+4. **Cancel Orders**: Call the specific cancel function based on the order(s) type (`isNegRisk` and `isYieldBearing`).
 5. **Check Transaction Success**: Check to confirm the transaction was successful.
 
 ```typescript
@@ -460,45 +466,68 @@ const signer = new Wallet(process.env.WALLET_PRIVATE_KEY).connect(provider);
 // The main function which initiates the OrderBuilder (only once per signer) and then provides it as dependency to other util functions
 async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
-  const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
-  // Call an helper function to cancel orders and provide the OrderBuilder instance
-  await createOrder(builder);
+  // Call a helper function to cancel orders and provide the OrderBuilder instance
+  await cancelOrdersHelper(orderBuilder);
 }
 
-async function cancelOrders(builder: OrderBuilder) {
+async function cancelOrdersHelper(orderBuilder: OrderBuilder) {
   // Fetch your open orders from the `GET /orders` endpoint
   const apiResponse = [
-    // There are more fields, but for cancellations we only care about `order` and `isNegRisk`
-    { order: {}, isNegRisk: true },
-    { order: {}, isNegRisk: false },
-    { order: {}, isNegRisk: false },
+    // There are more fields, but for cancellations we only care about `order`, `isNegRisk` and `isYieldBearing`
+    { order: {}, isNegRisk: true, isYieldBearing: true },
+    { order: {}, isNegRisk: true, isYieldBearing: false },
+    { order: {}, isNegRisk: false, isYieldBearing: true },
+    { order: {}, isNegRisk: false, isYieldBearing: false },
   ];
 
   // Determine which orders you want to cancel
   const ordersToCancel = [
-    { order: {}, isNegRisk: true },
-    { order: {}, isNegRisk: false },
+    { order: {}, isNegRisk: true, isYieldBearing: true },
+    { order: {}, isNegRisk: true, isYieldBearing: false },
+    { order: {}, isNegRisk: false, isYieldBearing: true },
+    { order: {}, isNegRisk: false, isYieldBearing: false },
   ];
 
   const regularOrders: Order[] = [];
   const negRiskOrders: Order[] = [];
+  const regularYieldBearingOrders: Order[] = [];
+  const negRiskYieldBearingOrders: Order[] = [];
 
-  // Group the orders by `isNegRisk`
-  for (const { order, isNegRisk } of ordersToCancel) {
-    if (isNegRisk) {
-      negRiskOrders.push(order);
+  // Group the orders by `isNegRisk` and `isYieldBearing`
+  for (const { order, isNegRisk, isYieldBearing } of ordersToCancel) {
+    if (isYieldBearing) {
+      if (isNegRisk) {
+        negRiskYieldBearingOrders.push(order);
+      } else {
+        regularYieldBearingOrders.push(order);
+      }
     } else {
-      regularOrders.push(order);
+      if (isNegRisk) {
+        negRiskOrders.push(order);
+      } else {
+        regularOrders.push(order);
+      }
     }
   }
 
   // Call the respective cancel functions
-  const regResult = await builder.cancelOrders(regularOrders);
-  const negRiskResult = await builder.cancelNegRiskOrders(regularOrders);
+  const regResult = await orderBuilder.cancelOrders(regularOrders, { isNegRisk: false, isYieldBearing: false });
+  const negRiskResult = await orderBuilder.cancelOrders(negRiskOrders, { isNegRisk: true, isYieldBearing: false });
+
+  const regYieldBearingResult = await orderBuilder.cancelOrders(regularYieldBearingOrders, {
+    isNegRisk: false,
+    isYieldBearing: true,
+  });
+  const negRiskYieldBearingResult = await orderBuilder.cancelOrders(negRiskYieldBearingOrders, {
+    isNegRisk: true,
+    isYieldBearing: true,
+  });
 
   // Check for the transactions success
-  const success = regResult.success && negRiskResult.success;
+  const success =
+    regResult.success && negRiskResult.success && regYieldBearingResult.success && negRiskYieldBearingResult.success;
 }
 ```
 

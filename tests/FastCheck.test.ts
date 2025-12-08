@@ -14,7 +14,7 @@ describe("OrderBuilder", () => {
   let orderBuilder: OrderBuilder;
 
   beforeAll(async () => {
-    orderBuilder = await OrderBuilder.make(ChainId.BnbTestnet, mockSigner, { generateSalt: () => "1234" });
+    orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, mockSigner, { generateSalt: () => "1234" });
   });
 
   /**
@@ -106,7 +106,7 @@ describe("OrderBuilder", () => {
           expect(result.makerAmount).toBeGreaterThanOrEqual(0n);
           expect(result.takerAmount).toBeGreaterThanOrEqual(0n);
 
-          // Should always be between the maximum possible ranges (0.001 usdb to 1 usdb)
+          // Should always be between the maximum possible ranges (0.001 usdt to 1 usdt)
           expect(result.pricePerShare).toBeLessThanOrEqual(BigInt(1e18));
           expect(result.pricePerShare).toBeGreaterThanOrEqual(BigInt(1e15));
 
@@ -147,7 +147,7 @@ describe("OrderBuilder", () => {
           expect(result.makerAmount).toBeGreaterThanOrEqual(0n);
           expect(result.takerAmount).toBeGreaterThanOrEqual(0n);
 
-          // Should always be between the maximum possible ranges (0.001 usdb to 1 usdb)
+          // Should always be between the maximum possible ranges (0.001 usdt to 1 usdt)
           expect(result.pricePerShare).toBeLessThanOrEqual(BigInt(1e18));
           expect(result.pricePerShare).toBeGreaterThanOrEqual(BigInt(1e15));
 
@@ -190,7 +190,7 @@ describe("OrderBuilder", () => {
           expect(result.makerAmount).toBeGreaterThanOrEqual(0n);
           expect(result.takerAmount).toBeGreaterThanOrEqual(0n);
 
-          // Should always be between the maximum possible ranges (0.001 usdb to 1 usdb)
+          // Should always be between the maximum possible ranges (0.001 usdt to 1 usdt)
           expect(result.pricePerShare).toBeLessThanOrEqual(BigInt(1e18));
           expect(result.pricePerShare).toBeGreaterThanOrEqual(BigInt(1e15));
 
@@ -233,7 +233,7 @@ describe("OrderBuilder", () => {
           expect(result.makerAmount).toBeGreaterThanOrEqual(0n);
           expect(result.takerAmount).toBeGreaterThanOrEqual(0n);
 
-          // Should always be between the maximum possible ranges (0.001 usdb to 1 usdb)
+          // Should always be between the maximum possible ranges (0.001 usdt to 1 usdt)
           expect(result.pricePerShare).toBeLessThanOrEqual(BigInt(1e18));
           expect(result.pricePerShare).toBeGreaterThanOrEqual(BigInt(1e15));
 
