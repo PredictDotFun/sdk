@@ -17,6 +17,8 @@ import type {
   MulticallContracts,
   TransactionResult,
   CancelOrdersOptions,
+  RedeemPositionsOptions,
+  MergePositionsOptions,
   SetApprovalsResult,
   Address,
   MarketHelperValueInput,
@@ -430,11 +432,7 @@ export class OrderBuilder {
   }
 
   private getMarketOrderAmountsByQuantity(data: MarketHelperInput, book: Optional<Book, "marketId">): OrderAmounts {
-    const { updateTimestampMs, asks, bids } = book;
-
-    if (Date.now() - updateTimestampMs > FIVE_MINUTES_SECONDS * 1000) {
-      this.logger.warn("[WARN]: Order book is potentially stale. Consider using a more recent one.");
-    }
+    const { asks, bids } = book;
 
     const qty = retainSignificantDigits(data.quantityWei, 5);
 
@@ -547,59 +545,123 @@ export class OrderBuilder {
   }
 
   /**
-   * Redeems positions for a given condition ID and index set for non-NegRisk markets.
+   * Redeems positions for a given condition ID and index set.
    *
-   * @param {string} conditionId - The condition ID to redeem positions for.
-   * @param {1 | 2} indexSet - The index set to redeem positions for.
+   * @param {RedeemPositionsOptions} options - The options for redeeming positions.
+   * @param {string} options.conditionId - The condition ID to redeem positions for.
+   * @param {1 | 2} options.indexSet - The index set to redeem positions for.
+   * @param {bigint} [options.amount] - The amount of tokens to redeem. Required for NegRisk markets.
+   * @param {boolean} options.isNegRisk - Whether this is a NegRisk market.
+   * @param {boolean} options.isYieldBearing - Whether this is a yield-bearing market.
    * @returns {Promise<TransactionResult>} A promise that resolves to a `TransactionResult` object.
+   *
+   * @throws {MissingSignerError} If a signer was not provided when instantiating the OrderBuilder.
+   * @throws {Error} If amount is not provided for NegRisk markets.
    */
-  async redeemPositions(conditionId: string, indexSet: 1 | 2): Promise<TransactionResult> {
+  async redeemPositions(options: RedeemPositionsOptions): Promise<TransactionResult> {
+    const { conditionId, indexSet, amount, isNegRisk, isYieldBearing } = options;
+
     if (!this.contracts) {
       throw new MissingSignerError();
     }
 
-    const { contract, codec } = this.contracts.CONDITIONAL_TOKENS;
-    const amounts = [BigInt(indexSet)];
+    if (isNegRisk) {
+      if (amount === undefined) {
+        throw new Error("amount is required for NegRisk markets");
+      }
 
-    if (this.predictAccount) {
-      const kernel = this.contracts.KERNEL.contract;
+      const identifier = isYieldBearing ? "YIELD_BEARING_NEG_RISK_ADAPTER" : "NEG_RISK_ADAPTER";
+      const { contract, codec } = this.contracts[identifier];
+      const amounts = indexSet === 1 ? [amount, 0n] : [0n, amount];
 
-      const args = [this.addresses.USDT, ZeroHash, conditionId, amounts];
-      const encoded = codec.encodeFunctionData("redeemPositions", args);
-      const calldata = this.encodeExecutionCalldata(this.addresses.CONDITIONAL_TOKENS, encoded);
+      if (this.predictAccount) {
+        const kernel = this.contracts.KERNEL.contract;
 
-      return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+        const args = [conditionId, amounts];
+        const encoded = codec.encodeFunctionData("redeemPositions", args);
+        const calldata = this.encodeExecutionCalldata(this.addresses[identifier], encoded);
+
+        return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+      } else {
+        return this.handleTransaction(contract.redeemPositions, conditionId, amounts);
+      }
     } else {
-      return this.handleTransaction(contract.redeemPositions, this.addresses.USDT, ZeroHash, conditionId, amounts);
+      const identifier = isYieldBearing ? "YIELD_BEARING_CONDITIONAL_TOKENS" : "CONDITIONAL_TOKENS";
+      const { contract, codec } = this.contracts[identifier];
+      const amounts = [BigInt(indexSet)];
+
+      if (this.predictAccount) {
+        const kernel = this.contracts.KERNEL.contract;
+
+        const args = [this.addresses.USDT, ZeroHash, conditionId, amounts];
+        const encoded = codec.encodeFunctionData("redeemPositions", args);
+        const calldata = this.encodeExecutionCalldata(this.addresses[identifier], encoded);
+
+        return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+      } else {
+        return this.handleTransaction(contract.redeemPositions, this.addresses.USDT, ZeroHash, conditionId, amounts);
+      }
     }
   }
 
   /**
-   * Redeems positions for a given condition ID, index set and amount for NegRisk markets.
+   * Merges positions for a given condition ID.
    *
-   * @param {string} conditionId - The condition ID to redeem positions for.
-   * @param {1 | 2} indexSet - The index set to redeem positions for.
-   * @param {string | bigint} amount - The amount of tokens for a given position to redeem.
+   * This combines both outcome tokens back into the collateral token (USDT).
+   * Both outcome positions must have equal amounts to merge.
+   *
+   * @param {MergePositionsOptions} options - The options for merging positions.
+   * @param {string} options.conditionId - The condition ID to merge positions for.
+   * @param {bigint} options.amount - The amount of each outcome token to merge.
+   * @param {boolean} options.isNegRisk - Whether this is a NegRisk market.
+   * @param {boolean} options.isYieldBearing - Whether this is a yield-bearing market.
    * @returns {Promise<TransactionResult>} A promise that resolves to a `TransactionResult` object.
+   *
+   * @throws {MissingSignerError} If a signer was not provided when instantiating the OrderBuilder.
    */
-  async redeemNegRiskPositions(conditionId: string, indexSet: 1 | 2, amount: BigNumberish): Promise<TransactionResult> {
+  async mergePositions(options: MergePositionsOptions): Promise<TransactionResult> {
+    const { conditionId, amount, isNegRisk, isYieldBearing } = options;
+
     if (!this.contracts) {
       throw new MissingSignerError();
     }
 
-    const { contract, codec } = this.contracts["NEG_RISK_ADAPTER"];
-    const amounts = indexSet === 1 ? [amount, 0n] : [0n, amount];
+    if (isNegRisk) {
+      const identifier = isYieldBearing ? "YIELD_BEARING_NEG_RISK_ADAPTER" : "NEG_RISK_ADAPTER";
+      const { contract, codec } = this.contracts[identifier];
 
-    if (this.predictAccount) {
-      const kernel = this.contracts.KERNEL.contract;
+      if (this.predictAccount) {
+        const kernel = this.contracts.KERNEL.contract;
+        const encoded = codec.encodeFunctionData("mergePositions(bytes32,uint256)", [conditionId, amount]);
+        const calldata = this.encodeExecutionCalldata(this.addresses[identifier], encoded);
 
-      const args = [conditionId, amounts];
-      const encoded = codec.encodeFunctionData("redeemPositions", args);
-      const calldata = this.encodeExecutionCalldata(this.addresses.NEG_RISK_ADAPTER, encoded);
-
-      return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+        return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+      } else {
+        return this.handleTransaction(contract["mergePositions(bytes32,uint256)"], conditionId, amount);
+      }
     } else {
-      return this.handleTransaction(contract.redeemPositions, conditionId, amounts);
+      const identifier = isYieldBearing ? "YIELD_BEARING_CONDITIONAL_TOKENS" : "CONDITIONAL_TOKENS";
+      const { contract, codec } = this.contracts[identifier];
+      const partition = [1n, 2n];
+
+      if (this.predictAccount) {
+        const kernel = this.contracts.KERNEL.contract;
+
+        const args = [this.addresses.USDT, ZeroHash, conditionId, partition, amount];
+        const encoded = codec.encodeFunctionData("mergePositions", args);
+        const calldata = this.encodeExecutionCalldata(this.addresses[identifier], encoded);
+
+        return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+      } else {
+        return this.handleTransaction(
+          contract.mergePositions,
+          this.addresses.USDT,
+          ZeroHash,
+          conditionId,
+          partition,
+          amount,
+        );
+      }
     }
   }
 
@@ -838,16 +900,16 @@ export class OrderBuilder {
   /**
    * Check and manage the approval for the CTF Exchange to transfer the Conditional Tokens.
    *
-   * @param {boolean} [isNegRisk=false] - Whether to set approval for the Neg Risk CTF Exchange.
-   * @param {boolean} [isYieldBearing=false] - Whether to set approval for the yield-bearing exchange.
+   * @param {boolean} isNegRisk - Whether to set approval for the Neg Risk CTF Exchange.
+   * @param {boolean} isYieldBearing - Whether to set approval for the yield-bearing exchange.
    * @param {boolean} [approved=true] - Whether to approve the CTF Exchange to transfer the Conditional Tokens.
    * @returns {Promise<TransactionResult>} The result of the approval transaction.
    *
    * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
    */
   async setCtfExchangeApproval(
-    isNegRisk: boolean = false,
-    isYieldBearing: boolean = false,
+    isNegRisk: boolean,
+    isYieldBearing: boolean,
     approved: boolean = true,
   ): Promise<TransactionResult> {
     const identifier = this.getExchangeIdentifier(isNegRisk, isYieldBearing);
@@ -865,7 +927,7 @@ export class OrderBuilder {
   /**
    * Check and manage the approval for the Neg Risk Adapter to transfer the Conditional Tokens.
    *
-   * @param {boolean} [isYieldBearing] - Whether to set approval for the yield-bearing neg risk adapter.
+   * @param {boolean} isYieldBearing - Whether to set approval for the yield-bearing neg risk adapter.
    * @param {boolean} [approved=true] - Whether to approve the Neg Risk Adapter to transfer the Conditional Tokens.
    * @returns {Promise<TransactionResult>} The result of the approval transaction.
    *
@@ -887,8 +949,8 @@ export class OrderBuilder {
   /**
    * Check and manage the approval for the CTF Exchange to transfer the USDT collateral.
    *
-   * @param {boolean} [isNegRisk=false] - Whether to set approval for the Neg Risk CTF Exchange.
-   * @param {boolean} [isYieldBearing=false] - Whether to set approval for the yield-bearing exchange.
+   * @param {boolean} isNegRisk - Whether to set approval for the Neg Risk CTF Exchange.
+   * @param {boolean} isYieldBearing - Whether to set approval for the yield-bearing exchange.
    * @param {bigint} [minAmount=MaxInt256] - The minimum amount of USDT tokens to approve for.
    * @param {bigint} [maxAmount=MaxUint256] - The maximum amount of USDT tokens to approve for.
    * @returns {Promise<TransactionResult>} The result of the approval transaction.
@@ -896,8 +958,8 @@ export class OrderBuilder {
    * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
    */
   async setCtfExchangeAllowance(
-    isNegRisk: boolean = false,
-    isYieldBearing: boolean = false,
+    isNegRisk: boolean,
+    isYieldBearing: boolean,
     minAmount: bigint = MaxInt256,
     maxAmount: bigint = MaxUint256,
   ): Promise<TransactionResult> {

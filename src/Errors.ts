@@ -15,7 +15,7 @@ export class InvalidQuantityError extends Error {
 export class InvalidExpirationError extends Error {
   public readonly name = "InvalidExpirationError";
   constructor() {
-    super("Invalid expiration. Must be greater than 0.");
+    super("Invalid expiration. Must be in the future.");
   }
 }
 
