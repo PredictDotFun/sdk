@@ -345,3 +345,19 @@ export interface CancelOrdersOptions {
   /** Default: true */
   withValidation?: boolean;
 }
+
+export interface RedeemPositionsOptions {
+  conditionId: string;
+  indexSet: 1 | 2;
+  isNegRisk: boolean;
+  isYieldBearing: boolean;
+  /** Required when isNegRisk is true */
+  amount?: bigint;
+}
+
+export interface MergePositionsOptions {
+  conditionId: string;
+  amount: bigint;
+  isNegRisk: boolean;
+  isYieldBearing: boolean;
+}

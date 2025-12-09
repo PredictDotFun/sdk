@@ -8,6 +8,7 @@ A TypeScript SDK to help developers interface with the Predict's protocol.
 - [How to create a LIMIT order _(recommended)_](#how-to-create-a-limit-order-recommended)
 - [How to create a MARKET order](#how-to-create-a-market-order)
 - [How to redeem positions](#how-to-redeem-positions)
+- [How to merge positions](#how-to-merge-positions)
 - [How to check USDT balance](#how-to-check-usdt-balance)
 - [How to interface with contracts](#how-to-interface-with-contracts)
 - [How to cancel orders](#how-to-cancel-orders)
@@ -294,11 +295,11 @@ async function createOrder(orderBuilder: OrderBuilder) {
 
 ## How to redeem positions
 
-The `OrderBuilder` class provides methods to redeem your positions on the Predict protocol. Depending on the type of market you're interacting with, you can use either `redeemPositions` for standard markets or `redeemNegRiskPositions` for NegRisk markets.
+The `OrderBuilder` class provides the `redeemPositions` method to redeem your positions on the Predict protocol. The method supports all market types through the `isNegRisk` and `isYieldBearing` options.
 
 1. **Create a Wallet**: Initialize a wallet that will be used to sign the redemption transaction.
 2. **Initialize `OrderBuilder`**: Instantiate the `OrderBuilder` class by calling the static `make` method.
-3. **Redeem Positions**: Call the `redeemPositions` method with the appropriate `conditionId` and `indexSet`.
+3. **Redeem Positions**: Call the `redeemPositions` method with the appropriate options.
 
 The `conditionId` and `indexSet` can be fetched from the `GET /positions` endpoint.
 
@@ -315,15 +316,23 @@ async function main() {
   // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
   const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
 
-  await redeemPositions(orderBuilder);
+  // Redeem positions for a standard market
+  await redeemStandardPositions(orderBuilder);
+
+  // Redeem positions for a NegRisk market
   await redeemNegRiskPositions(orderBuilder);
 }
 
-async function redeemPositions(orderBuilder: OrderBuilder) {
+async function redeemStandardPositions(orderBuilder: OrderBuilder) {
   const conditionId = "CONDITION_ID_FROM_API"; // A hash string
   const indexSet = "INDEX_SET_FROM_API"; // 1 or 2 based on the position you want to redeem
 
-  const result = await orderBuilder.redeemPositions(conditionId, indexSet);
+  const result = await orderBuilder.redeemPositions({
+    conditionId,
+    indexSet,
+    isNegRisk: false,
+    isYieldBearing: true, // Set based on market type
+  });
 
   if (result.success) {
     console.log("Positions redeemed successfully:", result.receipt);
@@ -337,12 +346,61 @@ async function redeemNegRiskPositions(orderBuilder: OrderBuilder) {
   const indexSet = "INDEX_SET_FROM_API"; // 1 or 2 based on the position you want to redeem
   const amount = "POSITION_AMOUNT_FROM_API"; // The amount to redeem, usually the max
 
-  const result = await orderBuilder.redeemNegRiskPositions(conditionId, indexSet, amount);
+  const result = await orderBuilder.redeemPositions({
+    conditionId,
+    indexSet,
+    amount,
+    isNegRisk: true,
+    isYieldBearing: true, // Set based on market type
+  });
 
   if (result.success) {
     console.log("Positions redeemed successfully:", result.receipt);
   } else {
     console.error("Failed to redeem positions:", result.cause);
+  }
+}
+```
+
+## How to merge positions
+
+The `OrderBuilder` class provides the `mergePositions` method to combine both outcome tokens back into collateral (USDT). This is useful when you hold equal amounts of both YES and NO positions.
+
+1. **Create a Wallet**: Initialize a wallet that will be used to sign the merge transaction.
+2. **Initialize `OrderBuilder`**: Instantiate the `OrderBuilder` class by calling the static `make` method.
+3. **Merge Positions**: Call the `mergePositions` method with the appropriate options.
+
+The `conditionId` can be fetched from the `GET /positions` endpoint.
+
+```typescript
+import { Wallet } from "ethers";
+import { OrderBuilder, ChainId } from "@predictdotfun/sdk";
+
+// Initialize the wallet with your private key
+const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
+
+async function main() {
+  // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+
+  await mergePositions(orderBuilder);
+}
+
+async function mergePositions(orderBuilder: OrderBuilder) {
+  const conditionId = "CONDITION_ID_FROM_API";
+  const amount = 10000000000000000000n; // 10 tokens (in wei)
+
+  const result = await orderBuilder.mergePositions({
+    conditionId,
+    amount,
+    isNegRisk: false,
+    isYieldBearing: true, // Set based on market type
+  });
+
+  if (result.success) {
+    console.log("Positions merged successfully:", result.receipt);
+  } else {
+    console.error("Failed to merge positions:", result.cause);
   }
 }
 ```
