@@ -736,7 +736,7 @@ export class OrderBuilder {
 
   /**
    * Helper function to calculate the amounts for a MARKET strategy order.
-   * @remarks The order book should be retrieved from the `GET /orderbook/{marketId}` endpoint.
+   * @remarks The order book should be retrieved from the `GET /markets/{marketId}/orderbook` endpoint.
    *
    * @param {MarketHelperInput | MarketHelperValueInput} data - The data required to calculate the amounts. Quantity represents value for
    *                                   a market buy, and share quantity for a market sell.

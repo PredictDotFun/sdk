@@ -236,7 +236,7 @@ async function main() {
 }
 
 async function createOrder(orderBuilder: OrderBuilder) {
-  // Fetch the orderbook for the specific market via `GET orderbook/{marketId}`
+  // Fetch the orderbook for the specific market via `GET /markets/{marketId}/orderbook`
   const book = {};
 
   /**
@@ -506,10 +506,9 @@ import {
 Here's an example on how to cancel orders via the SDK
 
 1. **Fetch Orders**: Retrieve your open orders using `GET /orders`.
-2. **Cancel Orders off chain**: Call `POST /orders/cancel` with orderIds and cancel orders from the orderbook
-3. **Group by `isNegRisk` and `isYieldBearing`**: Separate orders based on the `isNegRisk` and `isYieldBearing` properties.
-4. **Cancel Orders**: Call the specific cancel function based on the order(s) type (`isNegRisk` and `isYieldBearing`).
-5. **Check Transaction Success**: Check to confirm the transaction was successful.
+2. **Group by `isNegRisk` and `isYieldBearing`**: Separate orders based on the `isNegRisk` and `isYieldBearing` properties.
+3. **Cancel Orders**: Call the cancel function and provide the orders to cancel and the `isNegRisk` and `isYieldBearing` properties.
+4. **Check Transaction Success**: Check to confirm the transaction was successful.
 
 ```typescript
 import { Wallet } from "ethers";
@@ -570,7 +569,7 @@ async function cancelOrdersHelper(orderBuilder: OrderBuilder) {
     }
   }
 
-  // Call the respective cancel functions
+  // Call the cancel function
   const regResult = await orderBuilder.cancelOrders(regularOrders, { isNegRisk: false, isYieldBearing: false });
   const negRiskResult = await orderBuilder.cancelOrders(negRiskOrders, { isNegRisk: true, isYieldBearing: false });
 
