@@ -467,11 +467,7 @@ export class OrderBuilder {
   }
 
   private getMarketOrderAmountsByValue(data: MarketHelperValueInput, book: Optional<Book, "marketId">): OrderAmounts {
-    const { updateTimestampMs, asks } = book;
-
-    if (Date.now() - updateTimestampMs > FIVE_MINUTES_SECONDS * 1000) {
-      this.logger.warn("[WARN]: Order book is potentially stale. Consider using a more recent one.");
-    }
+    const { asks } = book;
 
     if (data.valueWei < BigInt(1e18)) {
       throw new InvalidQuantityError();
