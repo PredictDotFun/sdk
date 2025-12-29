@@ -86,6 +86,8 @@ export interface Addresses {
   ECDSA_VALIDATOR: Address;
 }
 
+export type CtfIdentifier = Extract<keyof Addresses, `${string}CONDITIONAL_TOKENS`>;
+
 /**
  * Order
  */

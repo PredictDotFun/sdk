@@ -1,6 +1,6 @@
 {
   "name": "@predictdotfun/sdk",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "license": "MIT",
   "description": "A TypeScript SDK to help developers interface with the Predict's protocol.",
   "homepage": "https://predict.fun/",

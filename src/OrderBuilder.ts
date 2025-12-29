@@ -23,6 +23,7 @@ import type {
   Address,
   MarketHelperValueInput,
   LogLevel,
+  CtfIdentifier,
 } from "./Types";
 import type { AbstractProvider, BaseWallet, BigNumberish, Interface } from "ethers";
 import type { ChainId } from "./Constants";
@@ -323,7 +324,23 @@ export class OrderBuilder {
     }
   }
 
-  private getApprovalOps(key: keyof Addresses, type: "ERC1155"): Erc1155Approval;
+  /**
+   * Helper function to get the conditional tokens identifier based on isNegRisk and isYieldBearing flags.
+   *
+   * @private
+   * @param {boolean} isNegRisk - Whether the market is a neg risk market.
+   * @param {boolean} isYieldBearing - Whether the market is yield-bearing.
+   * @returns The conditional tokens identifier key.
+   */
+  private getCtfIdentifier(isNegRisk: boolean, isYieldBearing: boolean): CtfIdentifier {
+    if (isYieldBearing) {
+      return isNegRisk ? "YIELD_BEARING_NEG_RISK_CONDITIONAL_TOKENS" : "YIELD_BEARING_CONDITIONAL_TOKENS";
+    } else {
+      return isNegRisk ? "NEG_RISK_CONDITIONAL_TOKENS" : "CONDITIONAL_TOKENS";
+    }
+  }
+
+  private getApprovalOps(key: keyof Addresses, type: "ERC1155", ctfIdentifier: CtfIdentifier): Erc1155Approval;
   private getApprovalOps(key: keyof Addresses, type: "ERC20"): Erc20Approval;
 
   /**
@@ -332,11 +349,12 @@ export class OrderBuilder {
    * @private
    * @param {keyof Addresses} key - The key of the contract in the `Addresses` object.
    * @param {"ERC1155" | "ERC20"} type - The type of approval to get.
+   * @param {CtfIdentifier} [ctfIdentifier] - The conditional tokens contract identifier (only required for ERC1155).
    * @returns {Approval} The approval operations for the given contract and type.
    *
    * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
    */
-  private getApprovalOps(key: keyof Addresses, type: "ERC1155" | "ERC20"): Approval {
+  private getApprovalOps(key: keyof Addresses, type: "ERC1155" | "ERC20", ctfIdentifier?: CtfIdentifier): Approval {
     const address = this.addresses[key];
 
     if (this.contracts === undefined) {
@@ -348,13 +366,17 @@ export class OrderBuilder {
 
       switch (type) {
         case "ERC1155": {
-          const { contract, codec } = this.contracts.CONDITIONAL_TOKENS;
+          if (ctfIdentifier === undefined) {
+            throw new Error("ctfIdentifier is required for ERC1155 approvals");
+          }
+
+          const { contract, codec } = this.contracts[ctfIdentifier];
 
           return {
             isApprovedForAll: () => contract.isApprovedForAll(this.predictAccount!, address),
             setApprovalForAll: (approved: boolean = true) => {
               const encoded = codec.encodeFunctionData("setApprovalForAll", [address, approved]);
-              const calldata = this.encodeExecutionCalldata(this.addresses.CONDITIONAL_TOKENS, encoded);
+              const calldata = this.encodeExecutionCalldata(this.addresses[ctfIdentifier], encoded);
 
               return this.handleTransaction(kernel.execute, this.executionMode, calldata);
             },
@@ -377,7 +399,11 @@ export class OrderBuilder {
     } else {
       switch (type) {
         case "ERC1155": {
-          const contract = this.contracts.CONDITIONAL_TOKENS.contract;
+          if (ctfIdentifier === undefined) {
+            throw new Error("ctfIdentifier is required for ERC1155 approvals");
+          }
+
+          const contract = this.contracts[ctfIdentifier].contract;
 
           return {
             isApprovedForAll: () => contract.isApprovedForAll(this.signer!.address, address),
@@ -909,7 +935,8 @@ export class OrderBuilder {
     approved: boolean = true,
   ): Promise<TransactionResult> {
     const identifier = this.getExchangeIdentifier(isNegRisk, isYieldBearing);
-    const { isApprovedForAll, setApprovalForAll } = this.getApprovalOps(identifier, "ERC1155");
+    const ctfIdentifier = this.getCtfIdentifier(isNegRisk, isYieldBearing);
+    const { isApprovedForAll, setApprovalForAll } = this.getApprovalOps(identifier, "ERC1155", ctfIdentifier);
 
     const isApproved = await isApprovedForAll();
 
@@ -931,7 +958,8 @@ export class OrderBuilder {
    */
   async setNegRiskAdapterApproval(isYieldBearing: boolean, approved: boolean = true): Promise<TransactionResult> {
     const identifier = isYieldBearing ? "YIELD_BEARING_NEG_RISK_ADAPTER" : "NEG_RISK_ADAPTER";
-    const { isApprovedForAll, setApprovalForAll } = this.getApprovalOps(identifier, "ERC1155");
+    const ctfIdentifier = this.getCtfIdentifier(true, isYieldBearing);
+    const { isApprovedForAll, setApprovalForAll } = this.getApprovalOps(identifier, "ERC1155", ctfIdentifier);
 
     const isApproved = await isApprovedForAll();
 
