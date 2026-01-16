@@ -363,3 +363,10 @@ export interface MergePositionsOptions {
   isNegRisk: boolean;
   isYieldBearing: boolean;
 }
+
+export interface SplitPositionsOptions {
+  conditionId: string;
+  amount: bigint;
+  isNegRisk: boolean;
+  isYieldBearing: boolean;
+}
