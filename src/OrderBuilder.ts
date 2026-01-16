@@ -19,6 +19,7 @@ import type {
   CancelOrdersOptions,
   RedeemPositionsOptions,
   MergePositionsOptions,
+  SplitPositionsOptions,
   SetApprovalsResult,
   Address,
   MarketHelperValueInput,
@@ -677,6 +678,67 @@ export class OrderBuilder {
       } else {
         return this.handleTransaction(
           contract.mergePositions,
+          this.addresses.USDT,
+          ZeroHash,
+          conditionId,
+          partition,
+          amount,
+        );
+      }
+    }
+  }
+
+  /**
+   * Splits collateral (USDT) into outcome tokens for a given condition ID.
+   *
+   * This splits the collateral token into both outcome tokens for a condition.
+   * The amount specified will be converted into equal amounts of each outcome token.
+   *
+   * @param {SplitPositionsOptions} options - The options for splitting positions.
+   * @param {string} options.conditionId - The condition ID to split positions for.
+   * @param {bigint} options.amount - The amount of collateral to split into outcome tokens.
+   * @param {boolean} options.isNegRisk - Whether this is a NegRisk market.
+   * @param {boolean} options.isYieldBearing - Whether this is a yield-bearing market.
+   * @returns {Promise<TransactionResult>} A promise that resolves to a `TransactionResult` object.
+   *
+   * @throws {MissingSignerError} If a signer was not provided when instantiating the OrderBuilder.
+   */
+  async splitPositions(options: SplitPositionsOptions): Promise<TransactionResult> {
+    const { conditionId, amount, isNegRisk, isYieldBearing } = options;
+
+    if (!this.contracts) {
+      throw new MissingSignerError();
+    }
+
+    if (isNegRisk) {
+      const identifier = isYieldBearing ? "YIELD_BEARING_NEG_RISK_ADAPTER" : "NEG_RISK_ADAPTER";
+      const { contract, codec } = this.contracts[identifier];
+
+      if (this.predictAccount) {
+        const kernel = this.contracts.KERNEL.contract;
+        const encoded = codec.encodeFunctionData("splitPosition(bytes32,uint256)", [conditionId, amount]);
+        const calldata = this.encodeExecutionCalldata(this.addresses[identifier], encoded);
+
+        return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+      } else {
+        return this.handleTransaction(contract["splitPosition(bytes32,uint256)"], conditionId, amount);
+      }
+    } else {
+      const identifier = isYieldBearing ? "YIELD_BEARING_CONDITIONAL_TOKENS" : "CONDITIONAL_TOKENS";
+      const { contract, codec } = this.contracts[identifier];
+      const partition = [1n, 2n];
+
+      if (this.predictAccount) {
+        const kernel = this.contracts.KERNEL.contract;
+
+        const args = [this.addresses.USDT, ZeroHash, conditionId, partition, amount];
+        const encoded = codec.encodeFunctionData("splitPosition", args);
+        const calldata = this.encodeExecutionCalldata(this.addresses[identifier], encoded);
+
+        return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+      } else {
+        return this.handleTransaction(
+          contract.splitPosition,
           this.addresses.USDT,
           ZeroHash,
           conditionId,
