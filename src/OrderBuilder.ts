@@ -444,15 +444,17 @@ export class OrderBuilder {
         return acc;
       }
 
+      // Accumulate price * qty without intermediate division to preserve precision.
+      // The final pricePerShare calculation will divide by quantity only.
       return remainingQtyWei < qtyWei
         ? {
             quantityWei: acc.quantityWei + remainingQtyWei,
-            priceWei: acc.priceWei + (priceWei * remainingQtyWei) / this.precision,
+            priceWei: acc.priceWei + priceWei * remainingQtyWei,
             lastPriceWei: priceWei,
           }
         : {
             quantityWei: acc.quantityWei + qtyWei,
-            priceWei: acc.priceWei + (priceWei * qtyWei) / this.precision,
+            priceWei: acc.priceWei + priceWei * qtyWei,
             lastPriceWei: priceWei,
           };
     }, reduceInit);
@@ -476,7 +478,9 @@ export class OrderBuilder {
         const { priceWei, quantityWei, lastPriceWei } = this.processBook(asks, qty);
         return {
           lastPrice: lastPriceWei,
-          pricePerShare: quantityWei > 0n ? (priceWei * this.precision) / quantityWei : 0n,
+          // priceWei now contains sum of (price * qty) without division,
+          // so divide by quantity only to get weighted average price
+          pricePerShare: quantityWei > 0n ? priceWei / quantityWei : 0n,
           makerAmount: (lastPriceWei * quantityWei) / this.precision,
           takerAmount: quantityWei,
         };
@@ -485,7 +489,9 @@ export class OrderBuilder {
         const { priceWei, quantityWei, lastPriceWei } = this.processBook(bids, qty);
         return {
           lastPrice: lastPriceWei,
-          pricePerShare: quantityWei > 0n ? (priceWei * this.precision) / quantityWei : 0n,
+          // priceWei now contains sum of (price * qty) without division,
+          // so divide by quantity only to get weighted average price
+          pricePerShare: quantityWei > 0n ? priceWei / quantityWei : 0n,
           makerAmount: quantityWei,
           takerAmount: (lastPriceWei * quantityWei) / this.precision,
         };

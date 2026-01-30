@@ -396,4 +396,97 @@ describe("OrderBuilder", () => {
       _correctTypedDataHashTest(false, false);
     });
   });
+
+  describe("Floating-point precision", () => {
+    it("should handle 0.777 price without precision loss", () => {
+      const result = orderBuilder.getMarketOrderAmounts({ side: Side.BUY, quantityWei: 62_430_861_279_963_832_320n }, {
+        updateTimestampMs: Date.now(),
+        asks: [
+          [0.777, 3.876_954_397_904_989_4],
+          [0.777, 411.860_378_183_376_4],
+        ],
+        bids: [
+          [0.69, 143.265_205_755_273_68],
+          [0.51, 214.469_725_737_179_37],
+        ],
+      } as Book);
+      // Should be exactly 777000000000000000n, not 776999999999999999n
+      expect(result.pricePerShare).toBe(777_000_000_000_000_000n);
+      expect(result.lastPrice).toBe(777_000_000_000_000_000n);
+    });
+
+    it("should handle original bug case (0.46, 0.48 prices)", () => {
+      const result = orderBuilder.getMarketOrderAmounts(
+        { side: Side.SELL, quantityWei: 100_000_000_000_000_000_000n },
+        {
+          updateTimestampMs: Date.now(),
+          asks: [
+            [0.46, 18.208],
+            [0.48, 442.3],
+            [0.48, 187.3],
+          ],
+          bids: [
+            [0.44, 36.77],
+            [0.41, 474.1],
+            [0.38, 328.03],
+          ],
+        } as Book,
+      );
+      // Should be exactly 421031000000000000n, not 421031000000000001n
+      expect(result.pricePerShare).toBe(421_031_000_000_000_000n);
+    });
+
+    it("should handle 0.07 price exactly", () => {
+      const result = orderBuilder.getMarketOrderAmounts({ side: Side.BUY, quantityWei: 10_000_000_000_000_000_000n }, {
+        updateTimestampMs: Date.now(),
+        marketId: 1,
+        asks: [[0.07, 100]],
+        bids: [],
+      } as Book);
+      expect(result.lastPrice).toBe(70_000_000_000_000_000n);
+    });
+
+    it("should handle 0.009 price exactly", () => {
+      const result = orderBuilder.getMarketOrderAmounts({ side: Side.BUY, quantityWei: 10_000_000_000_000_000_000n }, {
+        updateTimestampMs: Date.now(),
+        marketId: 1,
+        asks: [[0.009, 500]],
+        bids: [],
+      } as Book);
+      expect(result.lastPrice).toBe(9_000_000_000_000_000n);
+    });
+
+    it("should handle problematic decimals correctly", () => {
+      const problematicPrices: [number, bigint][] = [
+        [0.01, 10_000_000_000_000_000n],
+        [0.03, 30_000_000_000_000_000n],
+        [0.11, 110_000_000_000_000_000n],
+        [0.13, 130_000_000_000_000_000n],
+        [0.17, 170_000_000_000_000_000n],
+        [0.19, 190_000_000_000_000_000n],
+        [0.23, 230_000_000_000_000_000n],
+        [0.29, 290_000_000_000_000_000n],
+        [0.31, 310_000_000_000_000_000n],
+        [0.33, 330_000_000_000_000_000n],
+        [0.37, 370_000_000_000_000_000n],
+        [0.41, 410_000_000_000_000_000n],
+        [0.43, 430_000_000_000_000_000n],
+        [0.46, 460_000_000_000_000_000n],
+        [0.47, 470_000_000_000_000_000n],
+      ];
+
+      for (const [price, expectedWei] of problematicPrices) {
+        const result = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, quantityWei: 10_000_000_000_000_000_000n },
+          {
+            updateTimestampMs: Date.now(),
+            marketId: 1,
+            asks: [[price, 100]],
+            bids: [],
+          } as Book,
+        );
+        expect(result.lastPrice).toBe(expectedWei);
+      }
+    });
+  });
 });
