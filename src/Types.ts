@@ -33,6 +33,14 @@ export interface MarketHelperInput {
    * commonly used for SELL orders.
    */
   quantityWei: bigint;
+  /**
+   * Optional slippage tolerance in basis points (1 bps = 0.01%).
+   * When provided, adjusts maker/taker amounts to account for price movement:
+   * - BUY: inflates makerAmount (willing to pay more collateral)
+   * - SELL: deflates takerAmount (willing to accept less collateral)
+   * Defaults to 0 (no slippage).
+   */
+  slippageBps?: bigint | undefined;
 }
 
 export interface MarketHelperValueInput {
@@ -43,6 +51,12 @@ export interface MarketHelperValueInput {
    * This is only used for BUY orders.
    */
   valueWei: bigint;
+  /**
+   * Optional slippage tolerance in basis points (1 bps = 0.01%).
+   * When provided, inflates makerAmount to account for price movement.
+   * Defaults to 0 (no slippage).
+   */
+  slippageBps?: bigint | undefined;
 }
 
 export interface ProcessedBookAmounts {
@@ -62,6 +76,8 @@ export interface OrderAmounts {
   pricePerShare: bigint;
   makerAmount: bigint;
   takerAmount: bigint;
+  /** The slippage tolerance in basis points that was applied to the amounts. 0n if none. */
+  slippageBps: bigint;
 }
 
 /**

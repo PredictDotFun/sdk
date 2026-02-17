@@ -425,6 +425,20 @@ export class OrderBuilder {
   }
 
   /**
+   * Returns the minimum of two bigint values.
+   */
+  private min(a: bigint, b: bigint): bigint {
+    return a < b ? a : b;
+  }
+
+  /**
+   * Returns the maximum of two bigint values.
+   */
+  private max(a: bigint, b: bigint): bigint {
+    return a > b ? a : b;
+  }
+
+  /**
    * Processes the order book to help derive the average price and last price to be used for a MARKET strategy order.
    *
    * @private
@@ -473,27 +487,41 @@ export class OrderBuilder {
       throw new InvalidQuantityError();
     }
 
+    const slippageBps = data.slippageBps ?? 0n;
+
     switch (data.side) {
       case Side.BUY: {
         const { priceWei, quantityWei, lastPriceWei } = this.processBook(asks, qty);
+        const baseMakerAmount = (lastPriceWei * quantityWei) / this.precision;
+        // Clamp at $1/share (makerAmount ≤ takerAmount)
+        const makerAmount =
+          slippageBps > 0n
+            ? this.min((baseMakerAmount * (10_000n + slippageBps)) / 10_000n, quantityWei)
+            : baseMakerAmount;
         return {
           lastPrice: lastPriceWei,
           // priceWei now contains sum of (price * qty) without division,
           // so divide by quantity only to get weighted average price
           pricePerShare: quantityWei > 0n ? priceWei / quantityWei : 0n,
-          makerAmount: (lastPriceWei * quantityWei) / this.precision,
+          makerAmount,
           takerAmount: quantityWei,
+          slippageBps,
         };
       }
       case Side.SELL: {
         const { priceWei, quantityWei, lastPriceWei } = this.processBook(bids, qty);
+        const baseTakerAmount = (lastPriceWei * quantityWei) / this.precision;
+        // Floor at 0 to prevent underflow
+        const takerAmount =
+          slippageBps > 0n ? this.max((baseTakerAmount * (10_000n - slippageBps)) / 10_000n, 0n) : baseTakerAmount;
         return {
           lastPrice: lastPriceWei,
           // priceWei now contains sum of (price * qty) without division,
           // so divide by quantity only to get weighted average price
           pricePerShare: quantityWei > 0n ? priceWei / quantityWei : 0n,
           makerAmount: quantityWei,
-          takerAmount: (lastPriceWei * quantityWei) / this.precision,
+          takerAmount,
+          slippageBps,
         };
       }
     }
@@ -544,14 +572,21 @@ export class OrderBuilder {
     );
 
     const roundedShares = retainSignificantDigits(numberOfShares, 5);
-    const amounts = this.getMarketOrderAmountsByQuantity({ side: data.side, quantityWei: roundedShares }, book);
-    const { lastPrice, pricePerShare } = amounts;
+    const amounts = this.getMarketOrderAmountsByQuantity(
+      {
+        side: data.side,
+        quantityWei: roundedShares,
+        slippageBps: data.slippageBps,
+      },
+      book,
+    );
 
     return {
-      pricePerShare,
-      makerAmount: (lastPrice * roundedShares) / this.precision, // max user can spend (signed against highest asl)
-      takerAmount: roundedShares, // min shares they should get for their spend
-      lastPrice,
+      pricePerShare: amounts.pricePerShare,
+      makerAmount: amounts.makerAmount,
+      takerAmount: roundedShares,
+      lastPrice: amounts.lastPrice,
+      slippageBps: amounts.slippageBps,
     };
   }
 
@@ -815,6 +850,7 @@ export class OrderBuilder {
           makerAmount: (price * qty) / this.precision,
           takerAmount: qty,
           lastPrice: price,
+          slippageBps: 0n,
         };
       }
       case Side.SELL: {
@@ -823,6 +859,7 @@ export class OrderBuilder {
           makerAmount: qty,
           takerAmount: (price * qty) / this.precision,
           lastPrice: price,
+          slippageBps: 0n,
         };
       }
     }

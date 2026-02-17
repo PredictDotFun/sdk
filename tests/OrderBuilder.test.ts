@@ -93,8 +93,8 @@ describe("OrderBuilder", () => {
         [0.88, 4],
       ],
       bids: [
-        [0.5, 3],
         [0.9, 2],
+        [0.5, 3],
       ],
     } as Book;
 
@@ -184,13 +184,179 @@ describe("OrderBuilder", () => {
 
       expect(result.pricePerShare).toBe(toWei(0.66));
       expect(result.makerAmount).toBe(toWei(5));
-      expect(result.takerAmount).toBe(toWei(0.9 * 5));
+      // With bids [0.9, 2], [0.5, 3]: worst tier = 0.5, takerAmount = worstTier * qty
+      expect(result.takerAmount).toBe(toWei(0.5 * 5));
     });
 
     it("should throw InvalidQuantityError for small quantity", () => {
       expect(() => orderBuilder.getMarketOrderAmounts({ side: Side.BUY, quantityWei: toWei(0.001) }, mockBook)).toThrow(
         InvalidQuantityError,
       );
+    });
+
+    describe("slippage", () => {
+      const slippageBook = {
+        updateTimestampMs: Date.now(),
+        asks: [
+          [0.27, 100],
+          [0.3, 200],
+        ],
+        bids: [
+          [0.27, 100],
+          [0.25, 200],
+        ],
+      } as Book;
+
+      it("should inflate makerAmount for BUY by quantity with slippage", () => {
+        const withoutSlippage = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, quantityWei: toWei(100) },
+          slippageBook,
+        );
+        const withSlippage = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, quantityWei: toWei(100), slippageBps: 500n },
+          slippageBook,
+        );
+
+        const expected = (withoutSlippage.makerAmount * 10_500n) / 10_000n;
+        expect(withSlippage.makerAmount).toBe(expected);
+        expect(withSlippage.takerAmount).toBe(withoutSlippage.takerAmount);
+        expect(withSlippage.pricePerShare).toBe(withoutSlippage.pricePerShare);
+        expect(withSlippage.lastPrice).toBe(withoutSlippage.lastPrice);
+        expect(withSlippage.slippageBps).toBe(500n);
+      });
+
+      it("should deflate takerAmount for SELL by quantity with slippage", () => {
+        const withoutSlippage = orderBuilder.getMarketOrderAmounts(
+          { side: Side.SELL, quantityWei: toWei(100) },
+          slippageBook,
+        );
+        const withSlippage = orderBuilder.getMarketOrderAmounts(
+          { side: Side.SELL, quantityWei: toWei(100), slippageBps: 500n },
+          slippageBook,
+        );
+
+        const expected = (withoutSlippage.takerAmount * 9500n) / 10_000n;
+        expect(withSlippage.takerAmount).toBe(expected);
+        expect(withSlippage.makerAmount).toBe(withoutSlippage.makerAmount);
+        expect(withSlippage.pricePerShare).toBe(withoutSlippage.pricePerShare);
+        expect(withSlippage.lastPrice).toBe(withoutSlippage.lastPrice);
+        expect(withSlippage.slippageBps).toBe(500n);
+      });
+
+      it("should inflate makerAmount for BUY by value with slippage", () => {
+        const withoutSlippage = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, valueWei: toWei(10) },
+          slippageBook,
+        );
+        const withSlippage = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, valueWei: toWei(10), slippageBps: 500n },
+          slippageBook,
+        );
+
+        const expected = (withoutSlippage.makerAmount * 10_500n) / 10_000n;
+        expect(withSlippage.makerAmount).toBe(expected);
+        expect(withSlippage.takerAmount).toBe(withoutSlippage.takerAmount);
+        expect(withSlippage.slippageBps).toBe(500n);
+      });
+
+      it("should not apply slippage when slippageBps is omitted", () => {
+        const result = orderBuilder.getMarketOrderAmounts({ side: Side.BUY, quantityWei: toWei(100) }, slippageBook);
+
+        // makerAmount should equal lastPrice * qty / 1e18 (no slippage)
+        const expectedMaker = (result.lastPrice * toWei(100)) / BigInt(1e18);
+        expect(result.makerAmount).toBe(expectedMaker);
+        expect(result.slippageBps).toBe(0n);
+      });
+
+      it("should not apply slippage when slippageBps is 0n", () => {
+        const withDefault = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, quantityWei: toWei(100) },
+          slippageBook,
+        );
+        const withZero = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, quantityWei: toWei(100), slippageBps: 0n },
+          slippageBook,
+        );
+
+        expect(withZero.makerAmount).toBe(withDefault.makerAmount);
+        expect(withZero.takerAmount).toBe(withDefault.takerAmount);
+        expect(withZero.slippageBps).toBe(0n);
+      });
+
+      it("should clamp BUY makerAmount at $1/share when slippage pushes price above $1", () => {
+        const highPriceBook = {
+          updateTimestampMs: Date.now(),
+          asks: [[0.97, 100]],
+          bids: [[0.96, 100]],
+        } as Book;
+
+        const result = orderBuilder.getMarketOrderAmounts(
+          { side: Side.BUY, quantityWei: toWei(100), slippageBps: 500n }, // 5% on 0.97 = 1.0185
+          highPriceBook,
+        );
+
+        // makerAmount should be clamped to takerAmount (shares), i.e. $1/share
+        expect(result.makerAmount).toBe(result.takerAmount);
+      });
+
+      it("should floor SELL takerAmount at 0 with extreme slippage", () => {
+        const result = orderBuilder.getMarketOrderAmounts(
+          { side: Side.SELL, quantityWei: toWei(100), slippageBps: 10_001n },
+          slippageBook,
+        );
+
+        expect(result.takerAmount).toBe(0n);
+      });
+
+      describe("deep book (avg ≠ worst tier)", () => {
+        // avg = (0.25*50 + 0.27*30 + 0.30*20) / 100 = 0.266
+        // worst = 0.30 (highest ask for BUY)
+        const deepAskBook = {
+          updateTimestampMs: Date.now(),
+          asks: [
+            [0.25, 50],
+            [0.27, 30],
+            [0.3, 20],
+          ],
+          bids: [
+            [0.3, 50],
+            [0.27, 30],
+            [0.25, 20],
+          ],
+        } as Book;
+
+        it("BUY: slippage applies to worst tier price", () => {
+          const withoutSlippage = orderBuilder.getMarketOrderAmounts(
+            { side: Side.BUY, quantityWei: toWei(100) },
+            deepAskBook,
+          );
+          const withSlippage = orderBuilder.getMarketOrderAmounts(
+            { side: Side.BUY, quantityWei: toWei(100), slippageBps: 500n },
+            deepAskBook,
+          );
+
+          // worstTier = 0.30, 5% buffer: 0.30 * 100 * 1.05 = 31.5
+          const expected = (withoutSlippage.makerAmount * 10_500n) / 10_000n;
+          expect(withSlippage.makerAmount).toBe(expected);
+          expect(withSlippage.lastPrice).toBe(toWei(0.3));
+        });
+
+        it("SELL: slippage applies to worst tier price", () => {
+          const withoutSlippage = orderBuilder.getMarketOrderAmounts(
+            { side: Side.SELL, quantityWei: toWei(100) },
+            deepAskBook,
+          );
+          const withSlippage = orderBuilder.getMarketOrderAmounts(
+            { side: Side.SELL, quantityWei: toWei(100), slippageBps: 500n },
+            deepAskBook,
+          );
+
+          // worstTier = 0.25, 5% buffer: 0.25 * 100 * 0.95 = 23.75
+          const expected = (withoutSlippage.takerAmount * 9500n) / 10_000n;
+          expect(withSlippage.takerAmount).toBe(expected);
+          expect(withSlippage.lastPrice).toBe(toWei(0.25));
+        });
+      });
     });
   });
 
