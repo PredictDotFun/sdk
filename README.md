@@ -7,6 +7,7 @@ A TypeScript SDK to help developers interface with the Predict's protocol.
 - [How to use a Predict account](#how-to-use-a-predict-account)
 - [How to create a LIMIT order _(recommended)_](#how-to-create-a-limit-order-recommended)
 - [How to create a MARKET order](#how-to-create-a-market-order)
+- [How to apply slippage](#how-to-apply-slippage)
 - [How to redeem positions](#how-to-redeem-positions)
 - [How to merge positions](#how-to-merge-positions)
 - [How to check USDT balance](#how-to-check-usdt-balance)
@@ -252,10 +253,18 @@ async function createOrder(orderBuilder: OrderBuilder) {
   }
 
   // Helper function to calculate the amounts for a `MARKET` order
-  const { lastPrice, pricePerShare, makerAmount, takerAmount } = orderBuilder.getMarketOrderAmounts(
+  const {
+    lastPrice,
+    pricePerShare,
+    makerAmount,
+    takerAmount,
+    // Only needed if you set a slippage tolerance in the input
+    slippageBps,
+  } = orderBuilder.getMarketOrderAmounts(
     {
       side: Side.SELL,
       quantityWei: 10000000000000000000n, // 10 shares (in wei) e.g. parseEther("10")
+      slippageBps: 100n, // E.g. 1% slippage tolerance (100 bps)
     },
     book, // It's recommended to re-fetch the orderbook regularly to avoid issues
   );
@@ -287,11 +296,48 @@ async function createOrder(orderBuilder: OrderBuilder) {
       order: { ...signedOrder, hash },
       pricePerShare,
       strategy: "MARKET",
-      slippageBps: "200", // Only used for `MARKET` orders, in this example it's 2%
+      slippageBps,
     },
   };
 }
 ```
+
+### How to apply slippage
+
+By default, no additional slippage is applied to the order maker/taker amounts. You can specify a slippage tolerance in basis points (1 bps = 0.01%) to adjust the amounts:
+
+- **BUY orders**: slippage increases the `makerAmount` (you're willing to pay more)
+- **SELL orders**: slippage decreases the `takerAmount` (you're willing to receive less)
+
+```typescript
+// Market order with 1% slippage (100 bps)
+const amounts = orderBuilder.getMarketOrderAmounts(
+  {
+    side: Side.BUY,
+    quantityWei: 10000000000000000000n, // 10 shares (in wei)
+    slippageBps: 100n, // 1% slippage tolerance
+  },
+  book,
+);
+
+// The returned OrderAmounts includes the slippage that was applied
+console.log(`Maker Amount: ${amounts.makerAmount}`);
+console.log(`Taker Amount: ${amounts.takerAmount}`);
+console.log(`Price Per Share: ${amounts.pricePerShare}`);
+console.log(`Slippage Applied: ${amounts.slippageBps} bps`); // 100n
+
+// Value-based market order with slippage
+const valueAmounts = orderBuilder.getMarketOrderAmounts(
+  {
+    side: Side.BUY,
+    valueWei: 5000000000000000000n, // 5 USDT (in wei)
+    slippageBps: 50n, // 0.5% slippage tolerance
+  },
+  book,
+);
+```
+
+**Note:** Slippage will only be applied if you provide the `slippageBps` value when submitting your order to the REST API.
 
 ## How to redeem positions
 
