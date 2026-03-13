@@ -36,11 +36,21 @@ export interface MarketHelperInput {
   /**
    * Optional slippage tolerance in basis points (1 bps = 0.01%).
    * When provided, adjusts maker/taker amounts to account for price movement:
-   * - BUY: inflates makerAmount (willing to pay more collateral)
+   * - BUY with isMinAmountOut: deflates takerAmount (willing to accept fewer shares for the same USD)
+   * - BUY without isMinAmountOut: inflates makerAmount (willing to pay more collateral)
    * - SELL: deflates takerAmount (willing to accept less collateral)
    * Defaults to 0 (no slippage).
    */
   slippageBps?: bigint | undefined;
+  /**
+   * When true, uses an alternative slippage model for BUY orders where takerAmount is deflated
+   * (minimum shares out) and makerAmount equals the expected cost (avg price * shares). This allows spending the "maximum balance" of a wallet alongside enabling slippage in a way that won't cause an issue of inflating the balance.
+   * Must be passed as `isMinAmountOut: true` in the REST API request body.
+   *
+   * When false or omitted, makerAmount is inflated by slippage instead.
+   * Defaults to false.
+   */
+  isMinAmountOut?: boolean | undefined;
 }
 
 export interface MarketHelperValueInput {
@@ -53,10 +63,15 @@ export interface MarketHelperValueInput {
   valueWei: bigint;
   /**
    * Optional slippage tolerance in basis points (1 bps = 0.01%).
-   * When provided, inflates makerAmount to account for price movement.
+   * When provided, adjusts maker/taker amounts to account for price movement.
    * Defaults to 0 (no slippage).
    */
   slippageBps?: bigint | undefined;
+  /**
+   * When true, uses an alternative slippage model where takerAmount is deflated.
+   * See MarketHelperInput.isMinAmountOut for details.
+   */
+  isMinAmountOut?: boolean | undefined;
 }
 
 export interface ProcessedBookAmounts {
@@ -76,8 +91,12 @@ export interface OrderAmounts {
   pricePerShare: bigint;
   makerAmount: bigint;
   takerAmount: bigint;
+  /** The non-deflated share quantity. For BUY with isMinAmountOut and slippage, this differs from takerAmount. */
+  amount: bigint;
   /** The slippage tolerance in basis points that was applied to the amounts. 0n if none. */
   slippageBps: bigint;
+  /** Whether the alternative slippage model was used. Must be forwarded in the REST API request. */
+  isMinAmountOut: boolean;
 }
 
 /**

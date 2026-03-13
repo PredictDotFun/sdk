@@ -492,6 +492,35 @@ export class OrderBuilder {
     switch (data.side) {
       case Side.BUY: {
         const { priceWei, quantityWei, lastPriceWei } = this.processBook(asks, qty);
+        // default to false if not provided
+        const isMinAmountOut = data.isMinAmountOut === true;
+
+        if (isMinAmountOut) {
+          // makerAmount = expected cost (avg price * shares), not worstTierPrice * shares.
+          // the signed ratio makerAmount/takerAmount equals worstTierPrice/(1-slippage),
+          // which enables SPLIT (mint) matches at all book price levels while minimising
+          // the USD commitment so users can spend their full wallet balance.
+          const makerAmount = priceWei / this.precision;
+          // signedShares = expectedCost / worstTierPrice. fewer than actual shares,
+          // but the OB fills up to `amount` (actual shares), constrained by the USD budget.
+          const signedShares = lastPriceWei > 0n ? priceWei / lastPriceWei : 0n;
+          const takerAmount =
+            slippageBps > 0n ? this.max((signedShares * (10_000n - slippageBps)) / 10_000n, 0n) : signedShares;
+          return {
+            lastPrice: lastPriceWei,
+            // priceWei now contains sum of (price * qty) without division,
+            // so divide by quantity only to get weighted average price
+            pricePerShare: quantityWei > 0n ? priceWei / quantityWei : 0n,
+            makerAmount,
+            takerAmount,
+            amount: quantityWei,
+            slippageBps,
+            isMinAmountOut,
+          };
+        }
+
+        // default: makerAmount = worstTierPrice * shares, inflated by slippage.
+        // takerAmount = shares (unchanged).
         const baseMakerAmount = (lastPriceWei * quantityWei) / this.precision;
         // Clamp at $1/share (makerAmount ≤ takerAmount)
         const makerAmount =
@@ -505,7 +534,9 @@ export class OrderBuilder {
           pricePerShare: quantityWei > 0n ? priceWei / quantityWei : 0n,
           makerAmount,
           takerAmount: quantityWei,
+          amount: quantityWei,
           slippageBps,
+          isMinAmountOut,
         };
       }
       case Side.SELL: {
@@ -521,7 +552,9 @@ export class OrderBuilder {
           pricePerShare: quantityWei > 0n ? priceWei / quantityWei : 0n,
           makerAmount: quantityWei,
           takerAmount,
+          amount: quantityWei,
           slippageBps,
+          isMinAmountOut: false,
         };
       }
     }
@@ -577,6 +610,7 @@ export class OrderBuilder {
         side: data.side,
         quantityWei: roundedShares,
         slippageBps: data.slippageBps,
+        isMinAmountOut: data.isMinAmountOut,
       },
       book,
     );
@@ -584,9 +618,11 @@ export class OrderBuilder {
     return {
       pricePerShare: amounts.pricePerShare,
       makerAmount: amounts.makerAmount,
-      takerAmount: roundedShares,
+      takerAmount: amounts.takerAmount,
+      amount: roundedShares,
       lastPrice: amounts.lastPrice,
       slippageBps: amounts.slippageBps,
+      isMinAmountOut: amounts.isMinAmountOut,
     };
   }
 
@@ -849,8 +885,10 @@ export class OrderBuilder {
           pricePerShare: price,
           makerAmount: (price * qty) / this.precision,
           takerAmount: qty,
+          amount: qty,
           lastPrice: price,
           slippageBps: 0n,
+          isMinAmountOut: false,
         };
       }
       case Side.SELL: {
@@ -858,8 +896,10 @@ export class OrderBuilder {
           pricePerShare: price,
           makerAmount: qty,
           takerAmount: (price * qty) / this.precision,
+          amount: qty,
           lastPrice: price,
           slippageBps: 0n,
+          isMinAmountOut: false,
         };
       }
     }
