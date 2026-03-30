@@ -258,8 +258,10 @@ async function createOrder(orderBuilder: OrderBuilder) {
     pricePerShare,
     makerAmount,
     takerAmount,
+    amount, // Non-deflated share quantity (differs from takerAmount when isMinAmountOut is true)
     // Only needed if you set a slippage tolerance in the input
     slippageBps,
+    isMinAmountOut, // Whether the alternative slippage model was used
   } = orderBuilder.getMarketOrderAmounts(
     {
       side: Side.SELL,
@@ -306,12 +308,43 @@ async function createOrder(orderBuilder: OrderBuilder) {
 
 By default, no additional slippage is applied to the order maker/taker amounts. You can specify a slippage tolerance in basis points (1 bps = 0.01%) to adjust the amounts:
 
-- **BUY orders**: slippage increases the `makerAmount` (you're willing to pay more)
-- **SELL orders**: slippage decreases the `takerAmount` (you're willing to receive less)
+- **BUY orders with `isMinAmountOut: true` (recommended)**: slippage decreases the `takerAmount` (minimum shares out), while `makerAmount` equals the expected cost (avg price × shares). This is the recommended approach as it avoids inflating the USD commitment, allowing you to spend your full wallet balance.
+- **BUY orders (legacy)**: slippage increases the `makerAmount` (you're willing to pay more collateral). This is the default behavior when `isMinAmountOut` is omitted or `false`.
+- **SELL orders**: slippage decreases the `takerAmount` (you're willing to receive less collateral)
 
 ```typescript
-// Market order with 1% slippage (100 bps)
+// Recommended: Market order with 1% slippage using isMinAmountOut
 const amounts = orderBuilder.getMarketOrderAmounts(
+  {
+    side: Side.BUY,
+    quantityWei: 10000000000000000000n, // 10 shares (in wei)
+    slippageBps: 100n, // 1% slippage tolerance
+    isMinAmountOut: true, // Recommended: deflates takerAmount instead of inflating makerAmount
+  },
+  book,
+);
+
+// makerAmount is the expected cost, takerAmount is deflated by slippage
+console.log(`Maker Amount: ${amounts.makerAmount}`); // Expected cost (not inflated)
+console.log(`Taker Amount: ${amounts.takerAmount}`); // Deflated by slippage
+console.log(`Amount: ${amounts.amount}`); // Original share quantity
+console.log(`Price Per Share: ${amounts.pricePerShare}`);
+console.log(`Slippage Applied: ${amounts.slippageBps} bps`); // 100n
+console.log(`Is Min Amount Out: ${amounts.isMinAmountOut}`); // true
+
+// Value-based market order with slippage (also supports isMinAmountOut)
+const valueAmounts = orderBuilder.getMarketOrderAmounts(
+  {
+    side: Side.BUY,
+    valueWei: 5000000000000000000n, // 5 USDT (in wei)
+    slippageBps: 50n, // 0.5% slippage tolerance
+    isMinAmountOut: true,
+  },
+  book,
+);
+
+// Legacy: inflates makerAmount (when isMinAmountOut is omitted or false)
+const legacyAmounts = orderBuilder.getMarketOrderAmounts(
   {
     side: Side.BUY,
     quantityWei: 10000000000000000000n, // 10 shares (in wei)
@@ -319,25 +352,9 @@ const amounts = orderBuilder.getMarketOrderAmounts(
   },
   book,
 );
-
-// The returned OrderAmounts includes the slippage that was applied
-console.log(`Maker Amount: ${amounts.makerAmount}`);
-console.log(`Taker Amount: ${amounts.takerAmount}`);
-console.log(`Price Per Share: ${amounts.pricePerShare}`);
-console.log(`Slippage Applied: ${amounts.slippageBps} bps`); // 100n
-
-// Value-based market order with slippage
-const valueAmounts = orderBuilder.getMarketOrderAmounts(
-  {
-    side: Side.BUY,
-    valueWei: 5000000000000000000n, // 5 USDT (in wei)
-    slippageBps: 50n, // 0.5% slippage tolerance
-  },
-  book,
-);
 ```
 
-**Note:** Slippage will only be applied if you provide the `slippageBps` value when submitting your order to the REST API.
+**Note:** Slippage will only be applied if you provide the `slippageBps` value when submitting your order to the REST API. When using `isMinAmountOut: true`, you must also pass `isMinAmountOut: true` in the REST API request body.
 
 ## How to redeem positions
 
