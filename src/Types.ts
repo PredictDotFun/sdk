@@ -8,9 +8,22 @@ import type {
   ERC20,
   Kernel,
 } from "./typechain";
-import type { ContractTransactionReceipt, Interface } from "ethers";
+import type { BaseWallet, ContractTransactionReceipt, Interface, JsonRpcSigner } from "ethers";
 
 export type LogLevel = "ERROR" | "WARN" | "INFO" | "DEBUG";
+
+/**
+ * A signer accepted by the `OrderBuilder`.
+ *
+ * - `BaseWallet`: private-key wallets such as ethers' `Wallet` / `HDNodeWallet`.
+ * - `JsonRpcSigner`: injected/browser wallets obtained via `BrowserProvider.getSigner()`
+ *   (e.g. MetaMask through `window.ethereum`).
+ *
+ * Both expose a synchronous `address` and `signMessage`/`signTypedData`, which the
+ * SDK relies on. The generic ethers `Signer` is intentionally not accepted because
+ * it only exposes the async `getAddress()`.
+ */
+export type SignerLike = BaseWallet | JsonRpcSigner;
 
 export type BigIntString = string;
 export type Address = string;

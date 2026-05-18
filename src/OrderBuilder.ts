@@ -25,8 +25,9 @@ import type {
   MarketHelperValueInput,
   LogLevel,
   CtfIdentifier,
+  SignerLike,
 } from "./Types";
-import type { AbstractProvider, BaseWallet, BigNumberish, Interface } from "ethers";
+import type { AbstractProvider, BigNumberish, Interface } from "ethers";
 import type { ChainId } from "./Constants";
 import type {
   ConditionalTokens,
@@ -131,14 +132,16 @@ export class OrderBuilder {
    * Initializes a new instance of the OrderBuilder class with contract functionality.
    *
    * @param {ChainId} chainId - The chain ID for the network.
-   * @param {BaseWallet} signer - Signer object for signing orders. This will cause the method to return a promise.
+   * @param {SignerLike} signer - Signer object for signing orders (an ethers `BaseWallet` such as
+   *   `Wallet`/`HDNodeWallet`, or a `JsonRpcSigner` from `BrowserProvider.getSigner()`). This will
+   *   cause the method to return a promise.
    * @param {OrderBuilderOptions} [options] - Optional order configuration options.
    * @returns {Promise<OrderBuilder>} A new OrderBuilder instance with contract functionality.
    */
-  static make(chainId: ChainId, signer: BaseWallet, options?: OrderBuilderOptions): Promise<OrderBuilder>;
+  static make(chainId: ChainId, signer: SignerLike, options?: OrderBuilderOptions): Promise<OrderBuilder>;
   static make(
     chainId: ChainId,
-    signer: BaseWallet | undefined,
+    signer: SignerLike | undefined,
     options?: OrderBuilderOptions,
   ): OrderBuilder | Promise<OrderBuilder> {
     let contracts: MulticallContracts | undefined = undefined;
@@ -155,7 +158,11 @@ export class OrderBuilder {
       const multicallProvider = MulticallWrapper.wrap(provider as AbstractProvider);
 
       if (!signerWallet.provider) {
-        signerWallet = signerWallet.connect(provider);
+        // Only reachable for provider-less `BaseWallet`s: a `JsonRpcSigner`
+        // (BrowserProvider) always carries its provider, so its `connect()`
+        // (which throws "cannot reconnect JsonRpcSigner") is never invoked.
+        // The union's `connect()` widens the return to `Signer`, so narrow back.
+        signerWallet = signerWallet.connect(provider) as SignerLike;
       }
 
       // yield-bearing contracts
@@ -259,7 +266,7 @@ export class OrderBuilder {
     private readonly addresses: Addresses,
     private readonly generateOrderSalt: () => string,
     private readonly logger: Logger,
-    private readonly signer?: BaseWallet,
+    private readonly signer?: SignerLike,
     private readonly predictAccount?: Address,
     readonly contracts?: MulticallContracts,
   ) {}
