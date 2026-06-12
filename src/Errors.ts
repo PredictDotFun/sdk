@@ -57,3 +57,10 @@ export class InvalidSignerError extends Error {
     );
   }
 }
+
+export class InvalidApprovalOperationError extends Error {
+  public readonly name = "InvalidApprovalOperationError";
+  constructor(message?: string) {
+    super(message ?? "Invalid approval operation for the given market configuration.");
+  }
+}

@@ -26,6 +26,15 @@ import type {
   LogLevel,
   CtfIdentifier,
   SignerLike,
+  ApprovalScope,
+  ApprovalOperation,
+  ApprovalStep,
+  ApprovalStepType,
+  ApprovalCheck,
+  ApprovalRunReport,
+  ApprovalStepResult,
+  SetApprovalOptions,
+  RunApprovalsOptions,
 } from "./Types";
 import type { AbstractProvider, BigNumberish, Interface } from "ethers";
 import type { ChainId } from "./Constants";
@@ -56,6 +65,7 @@ import { makeContract, eip712WrapHash, retainSignificantDigits } from "./interna
 import {
   FailedOrderSignError,
   FailedTypedDataEncoderError,
+  InvalidApprovalOperationError,
   InvalidExpirationError,
   InvalidNegRiskConfig,
   InvalidQuantityError,
@@ -75,6 +85,8 @@ import {
   MAX_SALT,
   FIVE_MINUTES_SECONDS,
   ProviderByChainId,
+  SPENDER_ROLE_BY_KEY,
+  APPROVAL_STEP_COPY,
 } from "./Constants";
 import {
   ConditionalTokensAbi,
@@ -1185,6 +1197,306 @@ export class OrderBuilder {
     const success = results.every((r) => r.success);
 
     return { success, transactions: results };
+  }
+
+  /**
+   * Reverse-lookup an address to its `Addresses` key (case-insensitive).
+   *
+   * @private
+   * @param {Address} address - The address to resolve.
+   * @returns {keyof Addresses} The matching key.
+   * @throws {Error} If the address is not a known protocol address.
+   */
+  private addressToKey(address: Address): keyof Addresses {
+    const target = address.toLowerCase();
+    const key = (Object.keys(this.addresses) as (keyof Addresses)[]).find(
+      (k) => this.addresses[k].toLowerCase() === target,
+    );
+
+    if (!key) {
+      throw new Error(`Unknown approval address: ${address}`);
+    }
+
+    return key;
+  }
+
+  /**
+   * Builds a self-describing `ApprovalStep` from a spender/token pair.
+   *
+   * @private
+   * @param {ApprovalStepType} type - The approval kind.
+   * @param {keyof Addresses} spenderKey - The address being granted permission.
+   * @param {keyof Addresses} tokenKey - The token contract the approval is set on.
+   * @returns {ApprovalStep} The step descriptor with default UI copy.
+   */
+  private makeApprovalStep(
+    type: ApprovalStepType,
+    spenderKey: keyof Addresses,
+    tokenKey: keyof Addresses,
+  ): ApprovalStep {
+    const role = SPENDER_ROLE_BY_KEY[spenderKey];
+    const copy = role ? APPROVAL_STEP_COPY[`${role}:${type}`] : undefined;
+
+    return {
+      id: `${type}:${spenderKey}`,
+      type,
+      spender: this.addresses[spenderKey],
+      token: this.addresses[tokenKey],
+      label: copy?.label ?? "",
+      description: copy?.description ?? "",
+    };
+  }
+
+  /**
+   * Returns the minimal, ordered set of approvals required for a given operation on a
+   * given market type. Pure: requires no signer and performs no network calls.
+   *
+   * @remarks The `isNegRisk` and `isYieldBearing` flags can be fetched via the `GET /markets`
+   * or `GET /categories` endpoints. Operations that need no approval (e.g. a standard `MERGE`
+   * or `REDEEM`) return an empty array.
+   *
+   * @param {ApprovalScope} scope - The operation and market type to scope the approvals to.
+   * @returns {ApprovalStep[]} The ordered approval steps.
+   *
+   * @throws {InvalidApprovalOperationError} If `CONVERT` is requested for a non-neg-risk market.
+   */
+  getApprovalSteps(scope: ApprovalScope): ApprovalStep[] {
+    const { operation, isNegRisk, isYieldBearing, side } = scope;
+
+    const exchangeKey = this.getExchangeIdentifier(isNegRisk, isYieldBearing);
+    const ctfKey = this.getCtfIdentifier(isNegRisk, isYieldBearing);
+    const adapterKey: keyof Addresses = isYieldBearing ? "YIELD_BEARING_NEG_RISK_ADAPTER" : "NEG_RISK_ADAPTER";
+
+    const erc1155 = (spenderKey: keyof Addresses) => this.makeApprovalStep("ERC1155_APPROVAL", spenderKey, ctfKey);
+    const erc20 = (spenderKey: keyof Addresses) => this.makeApprovalStep("ERC20_ALLOWANCE", spenderKey, "USDT");
+
+    switch (operation) {
+      case "TRADE": {
+        const steps: ApprovalStep[] = [];
+        const includeSell = side === undefined || side === Side.SELL;
+        const includeBuy = side === undefined || side === Side.BUY;
+
+        if (includeSell) {
+          steps.push(erc1155(exchangeKey));
+        }
+        // Neg risk matches route minting/merging through the adapter, which moves the
+        // user's conditional tokens, so the adapter must be approved regardless of side.
+        if (isNegRisk) {
+          steps.push(erc1155(adapterKey));
+        }
+        if (includeBuy) {
+          steps.push(erc20(exchangeKey));
+        }
+
+        return steps;
+      }
+      case "SPLIT": {
+        // splitPosition pulls USDT: from the adapter for neg risk, otherwise from the CT contract.
+        return isNegRisk ? [erc20(adapterKey)] : [erc20(ctfKey)];
+      }
+      case "MERGE": {
+        // Neg risk merges burn the user's tokens via the adapter; standard merges burn directly.
+        return isNegRisk ? [erc1155(adapterKey)] : [];
+      }
+      case "REDEEM": {
+        // Neg risk claims redeem via the adapter; standard redemptions burn the user's own tokens.
+        return isNegRisk ? [erc1155(adapterKey)] : [];
+      }
+      case "CONVERT": {
+        if (!isNegRisk) {
+          throw new InvalidApprovalOperationError("CONVERT is only valid for neg-risk markets.");
+        }
+        return [erc1155(adapterKey)];
+      }
+    }
+  }
+
+  /**
+   * Returns every approval the protocol could require, across both market types (standard and
+   * neg risk) and, by default, both tracks (standard and yield-bearing), deduplicated by `id`.
+   *
+   * This is the per-step, progress-reportable equivalent of `setApprovals()` (and a slight
+   * superset, since it also includes the split allowances). Pure: requires no signer.
+   *
+   * @param {object} [opts]
+   * @param {boolean} [opts.isYieldBearing] - Limit to a single track. When omitted, both the
+   *   standard and yield-bearing tracks are included.
+   * @returns {ApprovalStep[]} The full, deduplicated set of approval steps.
+   */
+  getAllApprovalSteps(opts?: { isYieldBearing?: boolean }): ApprovalStep[] {
+    const tracks = opts?.isYieldBearing === undefined ? [false, true] : [opts.isYieldBearing];
+    const seen = new Set<string>();
+    const steps: ApprovalStep[] = [];
+
+    for (const isYieldBearing of tracks) {
+      for (const isNegRisk of [false, true]) {
+        // CONVERT is neg-risk only; its single step is already covered by the others.
+        const operations: ApprovalOperation[] = isNegRisk
+          ? ["TRADE", "SPLIT", "MERGE", "REDEEM", "CONVERT"]
+          : ["TRADE", "SPLIT", "MERGE", "REDEEM"];
+
+        for (const operation of operations) {
+          for (const step of this.getApprovalSteps({ operation, isNegRisk, isYieldBearing })) {
+            if (!seen.has(step.id)) {
+              seen.add(step.id);
+              steps.push(step);
+            }
+          }
+        }
+      }
+    }
+
+    return steps;
+  }
+
+  /**
+   * Checks, in a single batched multicall, whether each approval step is already satisfied on-chain.
+   *
+   * @async
+   * @param {ApprovalStep[]} steps - The steps to check (e.g. from `getApprovalSteps`).
+   * @returns {Promise<ApprovalCheck[]>} For each step, whether it is already satisfied.
+   *
+   * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
+   */
+  async checkApprovals(steps: ApprovalStep[]): Promise<ApprovalCheck[]> {
+    if (!this.contracts) {
+      throw new MissingSignerError();
+    }
+
+    const owner = this.predictAccount ?? this.signer!.address;
+    const multicall = this.contracts.multicall;
+
+    const checks = steps.map(async (step): Promise<ApprovalCheck> => {
+      if (step.type === "ERC20_ALLOWANCE") {
+        const allowance = await multicall.USDT.contract.allowance(owner, step.spender);
+        return { step, satisfied: allowance >= MaxInt256 };
+      }
+
+      const ctfKey = this.addressToKey(step.token);
+      const ctf = multicall[ctfKey] as { contract: ConditionalTokens; codec: Interface };
+      const approved = await ctf.contract.isApprovedForAll(owner, step.spender);
+      return { step, satisfied: approved };
+    });
+
+    return Promise.all(checks);
+  }
+
+  /**
+   * Checks whether a single approval step is already satisfied on-chain.
+   *
+   * @async
+   * @param {ApprovalStep} step - The step to check.
+   * @returns {Promise<boolean>} Whether the approval is already in place.
+   *
+   * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
+   */
+  async checkApproval(step: ApprovalStep): Promise<boolean> {
+    const [result] = await this.checkApprovals([step]);
+    return result!.satisfied;
+  }
+
+  /**
+   * Executes a single approval step on-chain. This is a raw send: it does not check whether the
+   * approval is already in place (use `checkApproval` for that, or `runApprovals` to do both).
+   *
+   * @async
+   * @param {ApprovalStep} step - The step to execute.
+   * @param {SetApprovalOptions} [opts] - For ERC-1155: `approved` (default `true`, pass `false` to revoke).
+   *   For ERC-20: `amount` (default `MaxUint256`); `approved: false` revokes by setting the allowance to `0`.
+   * @returns {Promise<TransactionResult>} The transaction result.
+   *
+   * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
+   */
+  async setApproval(step: ApprovalStep, opts?: SetApprovalOptions): Promise<TransactionResult> {
+    if (!this.contracts) {
+      throw new MissingSignerError();
+    }
+
+    const approved = opts?.approved ?? true;
+    const spenderKey = this.addressToKey(step.spender);
+
+    if (step.type === "ERC1155_APPROVAL") {
+      const ctfIdentifier = this.addressToKey(step.token) as CtfIdentifier;
+      const { setApprovalForAll } = this.getApprovalOps(spenderKey, "ERC1155", ctfIdentifier);
+      return setApprovalForAll(approved);
+    }
+
+    const { approve } = this.getApprovalOps(spenderKey, "ERC20");
+    // For ERC-20, `approved: false` revokes by setting the allowance to 0.
+    return approve(approved ? (opts?.amount ?? MaxUint256) : 0n);
+  }
+
+  /**
+   * Runs the given approval steps in order, reporting progress for each. Duplicate steps (by `id`)
+   * are removed, so you can pass a union of scopes or a curated subset.
+   *
+   * Produce the steps with `getApprovalSteps(scope)` (one operation) or `getAllApprovalSteps()`
+   * (everything). By default, each step is first checked and skipped if already satisfied, and the
+   * run stops on the first failure. Use the consumer-driven primitives (`checkApproval` +
+   * `setApproval`) directly when you need finer control, e.g. gating each step on a user confirmation.
+   *
+   * @async
+   * @param {ApprovalStep[]} steps - The steps to run (e.g. from `getApprovalSteps` / `getAllApprovalSteps`).
+   * @param {RunApprovalsOptions} [opts] - `skipSatisfied` (default true), `stopOnError` (default true),
+   *   and an optional `onProgress` callback invoked as each step transitions.
+   * @returns {Promise<ApprovalRunReport>} The per-step report and overall success.
+   *
+   * @throws {MissingSignerError} If a `signer` was not provided when instantiating the `OrderBuilder`.
+   */
+  async runApprovals(steps: ApprovalStep[], opts?: RunApprovalsOptions): Promise<ApprovalRunReport> {
+    const skipSatisfied = opts?.skipSatisfied ?? true;
+    const stopOnError = opts?.stopOnError ?? true;
+    const onProgress = opts?.onProgress;
+
+    // Dedupe by id (first occurrence wins) so unioned/curated step lists "just work".
+    const seen = new Set<string>();
+    const uniqueSteps = steps.filter((step) => {
+      if (seen.has(step.id)) {
+        return false;
+      }
+      seen.add(step.id);
+      return true;
+    });
+
+    const results: ApprovalStepResult[] = [];
+    let success = true;
+
+    for (const step of uniqueSteps) {
+      if (skipSatisfied) {
+        onProgress?.({ step, status: "checking" });
+
+        // A pre-check read failure is non-fatal: fall through to the send path (matching the
+        // legacy approval helpers) rather than aborting the whole run.
+        let alreadySatisfied = false;
+        try {
+          alreadySatisfied = await this.checkApproval(step);
+        } catch {
+          alreadySatisfied = false;
+        }
+
+        if (alreadySatisfied) {
+          onProgress?.({ step, status: "skipped" });
+          results.push({ step, status: "skipped" });
+          continue;
+        }
+      }
+
+      onProgress?.({ step, status: "submitting" });
+      const transaction = await this.setApproval(step);
+      const status = transaction.success ? "confirmed" : "failed";
+
+      onProgress?.({ step, status, transaction });
+      results.push({ step, status, transaction });
+
+      if (!transaction.success) {
+        success = false;
+        if (stopOnError) {
+          break;
+        }
+      }
+    }
+
+    return { success, steps: results };
   }
 
   /**

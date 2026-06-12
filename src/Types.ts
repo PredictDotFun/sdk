@@ -418,3 +418,105 @@ export interface SplitPositionsOptions {
   isNegRisk: boolean;
   isYieldBearing: boolean;
 }
+
+/**
+ * Scoped Approvals
+ */
+
+/**
+ * The on-chain operation a consumer is about to perform. Used to derive the
+ * minimal set of approvals required for that operation on a given market type.
+ */
+export type ApprovalOperation = "TRADE" | "SPLIT" | "MERGE" | "REDEEM" | "CONVERT";
+
+/** The kind of approval an `ApprovalStep` represents. */
+export type ApprovalStepType = "ERC1155_APPROVAL" | "ERC20_ALLOWANCE";
+
+/** The lifecycle status of an approval step while it is being run. */
+export type ApprovalStatus = "checking" | "skipped" | "submitting" | "confirmed" | "failed";
+
+/**
+ * Describes what the consumer is about to do, so the SDK can derive the
+ * minimal approvals required for it.
+ */
+export interface ApprovalScope {
+  /** The operation being performed. */
+  operation: ApprovalOperation;
+  /** Whether the market is a neg risk (multi-outcome, winner-takes-all) market. */
+  isNegRisk: boolean;
+  /** Whether the market is yield-bearing. */
+  isYieldBearing: boolean;
+  /**
+   * Optional narrowing for `TRADE` orders. When omitted, both directions are
+   * covered (ERC-1155 approval for selling and ERC-20 allowance for buying).
+   * `BUY` returns only the collateral allowance; `SELL` only the ERC-1155 approval.
+   */
+  side?: Side;
+}
+
+/**
+ * A single, self-describing approval. Returned by `getApprovalSteps` and consumed
+ * by `checkApproval` / `setApproval`. Plain data, safe to render and serialize.
+ */
+export interface ApprovalStep {
+  /** Stable identifier in the form `${type}:${spenderAddressKey}`. Use to map your own UI copy. */
+  id: string;
+  /** The kind of approval (ERC-1155 operator approval or ERC-20 allowance). */
+  type: ApprovalStepType;
+  /** The address being granted permission (an exchange, the neg risk adapter, or the conditional tokens contract). */
+  spender: Address;
+  /** The token contract the approval is set on (a conditional tokens contract for ERC-1155, USDT for ERC-20). */
+  token: Address;
+  /** Default, human-readable label (matches the web app). Override via `id` for i18n. */
+  label: string;
+  /** Default, human-readable description (matches the web app). Override via `id` for i18n. */
+  description: string;
+}
+
+/** The result of checking whether a single approval step is already satisfied on-chain. */
+export interface ApprovalCheck {
+  step: ApprovalStep;
+  /** Whether the approval is already in place (ERC-1155 approved-for-all, or ERC-20 allowance ≥ MaxInt256). */
+  satisfied: boolean;
+}
+
+/** Emitted by `runApprovals` via `onProgress` as each step transitions. */
+export interface ApprovalProgress {
+  step: ApprovalStep;
+  status: ApprovalStatus;
+  /** Present once the step has been submitted (`confirmed` / `failed`). */
+  transaction?: TransactionResult;
+}
+
+/** The outcome of a single step within an `ApprovalRunReport`. */
+export interface ApprovalStepResult {
+  step: ApprovalStep;
+  status: "skipped" | "confirmed" | "failed";
+  /** Present when the step was submitted (i.e. not `skipped`). */
+  transaction?: TransactionResult;
+}
+
+/** The report returned by `runApprovals`. */
+export interface ApprovalRunReport {
+  /** True when every step was either skipped or confirmed. */
+  success: boolean;
+  steps: ApprovalStepResult[];
+}
+
+/** Options for `setApproval`. */
+export interface SetApprovalOptions {
+  /** ERC-1155 only: whether to approve (default) or revoke (`false`). */
+  approved?: boolean;
+  /** ERC-20 only: the allowance to set. Defaults to `MaxUint256`. */
+  amount?: bigint;
+}
+
+/** Options for `runApprovals`. */
+export interface RunApprovalsOptions {
+  /** When true (default), each step is checked first and skipped if already satisfied. */
+  skipSatisfied?: boolean;
+  /** When true (default), stop running further steps after the first failure. */
+  stopOnError?: boolean;
+  /** Called as each step transitions, for live UI updates. */
+  onProgress?: (progress: ApprovalProgress) => void;
+}

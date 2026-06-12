@@ -95,3 +95,64 @@ export const ORDER_STRUCTURE = [
   { name: "side", type: "uint8" },
   { name: "signatureType", type: "uint8" },
 ];
+
+/**
+ * Scoped Approvals
+ */
+
+/**
+ * The logical role a spender plays, independent of the yield-bearing track.
+ * Used to look up default UI copy for an approval step.
+ */
+export type ApprovalStepRole = "EXCHANGE" | "NEG_RISK_EXCHANGE" | "NEG_RISK_ADAPTER" | "CONDITIONAL_TOKENS";
+
+/**
+ * Maps an `Addresses` spender key to its yield-agnostic role, so the standard
+ * and yield-bearing variants share the same UI copy.
+ */
+export const SPENDER_ROLE_BY_KEY: Partial<Record<keyof Addresses, ApprovalStepRole>> = {
+  CTF_EXCHANGE: "EXCHANGE",
+  YIELD_BEARING_CTF_EXCHANGE: "EXCHANGE",
+  NEG_RISK_CTF_EXCHANGE: "NEG_RISK_EXCHANGE",
+  YIELD_BEARING_NEG_RISK_CTF_EXCHANGE: "NEG_RISK_EXCHANGE",
+  NEG_RISK_ADAPTER: "NEG_RISK_ADAPTER",
+  YIELD_BEARING_NEG_RISK_ADAPTER: "NEG_RISK_ADAPTER",
+  CONDITIONAL_TOKENS: "CONDITIONAL_TOKENS",
+  YIELD_BEARING_CONDITIONAL_TOKENS: "CONDITIONAL_TOKENS",
+};
+
+/**
+ * Default, human-readable copy for each approval step, keyed by `${role}:${type}`.
+ * Mirrors the wording shown in the Predict web app. Consumers can override this by
+ * mapping off the step's stable `id`.
+ */
+export const APPROVAL_STEP_COPY: Record<string, { label: string; description: string }> = {
+  "EXCHANGE:ERC1155_APPROVAL": {
+    label: "Approve Exchange",
+    description: "Allows you to interact with the exchange.",
+  },
+  "EXCHANGE:ERC20_ALLOWANCE": {
+    label: "Exchange Allowance",
+    description: "Grants the exchange permission to use your collateral to trade.",
+  },
+  "NEG_RISK_EXCHANGE:ERC1155_APPROVAL": {
+    label: "Approve Multi-Outcome",
+    description: "Allows you to interact with multi-outcome markets.",
+  },
+  "NEG_RISK_ADAPTER:ERC1155_APPROVAL": {
+    label: "Approve Multi-Outcome Adapter",
+    description: "Allows the multi-outcome adapter to manage your tokens.",
+  },
+  "NEG_RISK_EXCHANGE:ERC20_ALLOWANCE": {
+    label: "Multi-Outcome Allowance",
+    description: "Grants the multi-outcome exchange permission to use your collateral.",
+  },
+  "CONDITIONAL_TOKENS:ERC20_ALLOWANCE": {
+    label: "Split Allowance",
+    description: "Grants permission to use your collateral to split positions.",
+  },
+  "NEG_RISK_ADAPTER:ERC20_ALLOWANCE": {
+    label: "Multi-Outcome Split Allowance",
+    description: "Grants the adapter permission to use your collateral to split positions.",
+  },
+};

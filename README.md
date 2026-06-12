@@ -4,6 +4,7 @@ A TypeScript SDK to help developers interface with the Predict's protocol.
 
 - [How to install the SDK](#how-to-install-the-sdk)
 - [How to set approvals](#how-to-set-approvals)
+- [How to set scoped approvals (per-operation)](#how-to-set-scoped-approvals-per-operation)
 - [How to use a Predict account](#how-to-use-a-predict-account)
 - [How to create a LIMIT order _(recommended)_](#how-to-create-a-limit-order-recommended)
 - [How to create a MARKET order](#how-to-create-a-market-order)
@@ -28,6 +29,19 @@ npm install @predictdotfun/sdk ethers
 ```
 
 See the [`OrderBuilder`](./src/OrderBuilder.ts) class for more in-depth details on each function.
+
+**Tip (faster confirmations):** ethers' default provider polling interval is `4000ms`, so every `tx.wait()` the SDK does internally (in `setApprovals`, `runApprovals`, `cancelOrders`, `redeemPositions`, etc.) can take up to ~4s to notice a mined transaction. On a fast chain like BNB, lower it to ~`300ms` so confirmations feel near-instant:
+
+```typescript
+import { JsonRpcProvider, Wallet } from "ethers";
+
+const provider = new JsonRpcProvider(process.env.RPC_PROVIDER_URL);
+provider.pollingInterval = 300; // default is 4000ms
+
+const signer = new Wallet(process.env.WALLET_PRIVATE_KEY, provider);
+```
+
+The interval lives on the provider, so set it on whatever provider you pass in, including a `BrowserProvider` (e.g. MetaMask): `provider.pollingInterval = 300`.
 
 ## Predict Account
 
@@ -67,6 +81,150 @@ async function setApprovals(orderBuilder: OrderBuilder) {
   }
 }
 ```
+
+## How to set scoped approvals (per-operation)
+
+`setApprovals()` sets every approval for every market type in a single call. For most apps the scoped-approvals API is the better fit, and is the recommended approach whenever you build an approval UI. It returns only the approvals a given operation needs, as a list of plain, self-describing steps you can render as a checklist, pre-check, run with live progress, and gate on user confirmation.
+
+The mental model is simple: **everything produces steps, and one runner runs steps.**
+
+1. Describe what the user is about to do with an `ApprovalScope` (`operation`, plus `isNegRisk` / `isYieldBearing`, and an optional `side` to narrow a `TRADE`).
+2. Turn it into an ordered `ApprovalStep[]` with `getApprovalSteps` (one operation) or `getAllApprovalSteps` (everything). Both are pure (no signer, no network access), so you can render the checklist before the wallet is connected.
+3. Run the steps with `runApprovals`, or drive them yourself with `checkApprovals` / `setApproval`.
+
+`isNegRisk` and `isYieldBearing` describe the market and can be fetched from the `GET /markets` (or `GET /categories`) endpoint.
+
+`getApprovalSteps` returns the minimal, ordered set for the operation. The labels below are the SDK's default copy (they match the Predict web app). Operations that need no approval return an empty array. |
+
+A `TRADE` scope covers both order directions by default. Pass `side: Side.BUY` for just the collateral allowance, or `side: Side.SELL` for just the ERC-1155 approval. `CONVERT` is neg-risk only and throws `InvalidApprovalOperationError` for a standard market.
+
+### The `ApprovalStep` shape
+
+Each step is plain data, safe to render and serialize:
+
+```typescript
+{
+  id: "ERC1155_APPROVAL:CTF_EXCHANGE", // stable identifier: `${type}:${spenderKey}`
+  type: "ERC1155_APPROVAL",            // or "ERC20_ALLOWANCE"
+  spender: "0x8BC0...B689",            // the contract being granted permission
+  token: "0x22DA...d244",              // the token contract (conditional tokens for ERC-1155, USDT for ERC-20)
+  label: "Approve Exchange",           // default copy
+  description: "Allows you to interact with the exchange.",
+}
+```
+
+The `label`/`description` are sensible English defaults. For custom wording or i18n, key your own copy off the stable `id` and ignore them.
+
+### Build the steps
+
+You'll typically build the steps from the same signer-backed `OrderBuilder` you use to check and run them.
+
+```typescript
+import { OrderBuilder, ChainId, Side } from "@predictdotfun/sdk";
+
+const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+
+// For a single operation on a market:
+const steps = builder.getApprovalSteps({
+  operation: "TRADE",
+  isNegRisk: true,
+  isYieldBearing: false,
+  // side: Side.BUY, // optional TRADE narrowing
+});
+
+// For onboarding, every approval across both market types (and, by default, both tracks):
+const allSteps = builder.getAllApprovalSteps(); // or { isYieldBearing: false } to limit to one track
+```
+
+`getApprovalSteps` and `getAllApprovalSteps` don't touch the chain, so you _can_ also call them on a signer-less builder (`OrderBuilder.make(ChainId.BnbMainnet)`) to render the checklist before the wallet is connected. You'll need a signer for everything after (`checkApprovals`, `setApproval`, `runApprovals`).
+
+### Run them with progress reporting
+
+`runApprovals(steps, opts)` runs the steps in order, deduplicating by `id` (so you can safely pass a union of scopes or a curated subset). Options:
+
+- `skipSatisfied` (default `true`): pre-check each step on-chain and skip the ones already in place.
+- `stopOnError` (default `true`): stop after the first failed step.
+- `onProgress`: a callback invoked as each step transitions, receiving `{ step, status, transaction? }`.
+
+```typescript
+const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+const steps = builder.getApprovalSteps({ operation: "TRADE", isNegRisk: true, isYieldBearing: false });
+
+const report = await builder.runApprovals(steps, {
+  skipSatisfied: true, // default
+  stopOnError: true, // default
+  onProgress: ({ step, status }) => updateUI(step.id, status),
+});
+```
+
+`onProgress` reports each step through this lifecycle:
+
+| Status       | Meaning                                                                    |
+| ------------ | -------------------------------------------------------------------------- |
+| `checking`   | reading on-chain whether it's already approved (only when `skipSatisfied`) |
+| `skipped`    | already in place, nothing sent                                             |
+| `submitting` | transaction sent, awaiting confirmation                                    |
+| `confirmed`  | the transaction succeeded                                                  |
+| `failed`     | the transaction reverted or failed                                         |
+
+The returned report is `{ success, steps }`, where each entry is `{ step, status: "skipped" | "confirmed" | "failed", transaction? }` (the `transaction` carries the receipt for submitted steps):
+
+```typescript
+if (!report.success) {
+  const failed = report.steps.filter((s) => s.status === "failed");
+  throw new Error(`Approvals failed: ${failed.map((s) => s.step.id).join(", ")}`);
+}
+```
+
+### Render a live checklist (the typical UI flow)
+
+This is the flow behind an in-app "Approvals" modal: render the steps, mark the ones already done, then run the rest with live updates.
+
+```typescript
+const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+
+// 1. Build the plan.
+const steps = builder.getApprovalSteps({ operation: "TRADE", isNegRisk, isYieldBearing });
+
+// 2. Render the checklist, marking which are already satisfied (one batched multicall read).
+for (const { step, satisfied } of await builder.checkApprovals(steps)) {
+  addRow(step.id, step.label, step.description, satisfied ? "done" : "pending");
+}
+
+// 3. Run the remaining steps, updating each row as it progresses.
+const report = await builder.runApprovals(steps, {
+  onProgress: ({ step, status }) => setRowStatus(step.id, status),
+});
+```
+
+For first-time onboarding, swap `getApprovalSteps(scope)` for `getAllApprovalSteps()` to approve everything the protocol could need in one pass. That is the per-step, progress-reportable equivalent of `setApprovals()` (and a slight superset, since it also includes the split allowances).
+
+### Or drive each step yourself
+
+For full control (e.g. gating each step on a user confirmation), use the per-step primitives. `checkApprovals` batches the on-chain reads (via multicall) so you can render the initial state in one round-trip.
+
+```typescript
+const builder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+const steps = builder.getApprovalSteps({ operation: "SPLIT", isNegRisk: false, isYieldBearing: false });
+
+// Batched pre-check to mark which steps are already done.
+const checks = await builder.checkApprovals(steps);
+
+for (const { step, satisfied } of checks) {
+  if (satisfied) continue; // already approved
+  // setApproval is a raw send: ERC-20 defaults to MaxUint256, ERC-1155 to `approved: true`.
+  // Pass `{ approved: false }` to revoke, or `{ amount }` to cap an allowance.
+  const result = await builder.setApproval(step);
+  if (!result.success) break; // you decide whether to continue
+}
+```
+
+### Notes
+
+- **Compose freely.** Union step lists to cover several operations at once, e.g. to make a market both trade-ready and splittable: `runApprovals([...tradeSteps, ...splitSteps])` (duplicates are removed automatically).
+- **Predict accounts** (smart wallets) are supported transparently: every step routes through `Kernel.execute` when a `predictAccount` is configured.
+- **Signer requirements.** `getApprovalSteps` and `getAllApprovalSteps` are pure and need no signer. `checkApproval` / `checkApprovals`, `setApproval`, and `runApprovals` require one and throw `MissingSignerError` otherwise.
+- **`setApprovals()` still exists** for the fire-and-forget "approve everything" case where you don't need per-step control or reporting.
 
 ## How to use a Predict account
 
