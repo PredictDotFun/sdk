@@ -419,6 +419,15 @@ export interface SplitPositionsOptions {
   isYieldBearing: boolean;
 }
 
+export interface ConvertPositionsOptions {
+  /** The category's on-chain NegRisk market ID (32-byte hex), as returned by the API. Not the numeric API id of a market or category. */
+  negRiskOnChainId: string;
+  /** Bitmask of the NO positions to convert, where bit `n` is the market's question at index `n` */
+  indexSet: bigint;
+  amount: bigint;
+  isYieldBearing: boolean;
+}
+
 /**
  * Scoped Approvals
  */

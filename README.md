@@ -11,6 +11,7 @@ A TypeScript SDK to help developers interface with the Predict's protocol.
 - [How to apply slippage](#how-to-apply-slippage)
 - [How to redeem positions](#how-to-redeem-positions)
 - [How to merge positions](#how-to-merge-positions)
+- [How to convert positions](#how-to-convert-positions)
 - [How to check USDT balance](#how-to-check-usdt-balance)
 - [How to interface with contracts](#how-to-interface-with-contracts)
 - [How to cancel orders](#how-to-cancel-orders)
@@ -610,6 +611,61 @@ async function mergePositions(orderBuilder: OrderBuilder) {
     console.log("Positions merged successfully:", result.receipt);
   } else {
     console.error("Failed to merge positions:", result.cause);
+  }
+}
+```
+
+## How to convert positions
+
+The `OrderBuilder` class provides the `convertPositions` method to convert NO positions in a NegRisk market into the complementary YES positions plus collateral (USDT). Only NegRisk markets support conversions.
+
+For each `amount` converted, the selected NO positions are burned and you receive:
+
+- `amount` of the YES position for every other market in the category.
+- `amount * (numberOfNoPositions - 1)` of collateral (USDT).
+
+If the market has a fee, it is deducted from both the collateral and the YES tokens.
+
+1. **Create a Wallet**: Initialize a wallet that will be used to sign the conversion transaction.
+2. **Initialize `OrderBuilder`**: Instantiate the `OrderBuilder` class by calling the static `make` method.
+3. **Convert Positions**: Call the `convertPositions` method with the appropriate options.
+
+The `negRiskOnChainId` matches the field of the same name returned by the `GET /categories` endpoint: the category's on-chain NegRisk market ID, a 32-byte hex string. Note that this is not the numeric `id` the API uses for markets and categories. The `indexSet` is a bitmask that selects which NO positions to convert: for each one, set the bit at the market's `questionIndex` (also returned by the `GET /categories` and `GET /positions` endpoints).
+
+Conversions move your NO tokens through the NegRisk adapter, which must be approved as an operator first. See [How to set scoped approvals (per-operation)](#how-to-set-scoped-approvals-per-operation) and use the `CONVERT` operation.
+
+```typescript
+import { Wallet } from "ethers";
+import { OrderBuilder, ChainId } from "@predictdotfun/sdk";
+
+// Initialize the wallet with your private key
+const signer = new Wallet(process.env.WALLET_PRIVATE_KEY);
+
+async function main() {
+  // Create a new instance of the OrderBuilder class. Note: This should only be done once per signer
+  const orderBuilder = await OrderBuilder.make(ChainId.BnbMainnet, signer);
+
+  await convertPositions(orderBuilder);
+}
+
+async function convertPositions(orderBuilder: OrderBuilder) {
+  const negRiskOnChainId = "NEG_RISK_ON_CHAIN_ID_FROM_API"; // 32-byte hex, not the numeric API id
+
+  // Set the bit at each market's `questionIndex` to select its NO position
+  const questionIndexes = [0, 2]; // e.g. convert the NO positions of the first and third questions
+  const indexSet = questionIndexes.reduce((set, index) => set | (1n << BigInt(index)), 0n);
+
+  const result = await orderBuilder.convertPositions({
+    negRiskOnChainId,
+    indexSet,
+    amount: 10000000000000000000n, // 10 tokens (in wei) of each NO position
+    isYieldBearing: true, // Set based on market type
+  });
+
+  if (result.success) {
+    console.log("Positions converted successfully:", result.receipt);
+  } else {
+    console.error("Failed to convert positions:", result.cause);
   }
 }
 ```

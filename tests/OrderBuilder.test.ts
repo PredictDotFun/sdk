@@ -1,6 +1,6 @@
 import type { BaseWallet } from "ethers";
 import type { Book } from "../src/Types";
-import { parseEther, ZeroAddress } from "ethers";
+import { parseEther, ZeroAddress, ZeroHash } from "ethers";
 import { OrderBuilder } from "../src/OrderBuilder";
 import { ChainId, Side, SignatureType } from "../src/Constants";
 import { InvalidQuantityError, InvalidExpirationError, MissingSignerError } from "../src/Errors";
@@ -587,6 +587,34 @@ describe("OrderBuilder", () => {
 
     it("should throw MissingSignerError if signer is not provided (non neg risk, non-yield bearing)", async () => {
       _signerIsNotProvidedTest(false, false);
+    });
+  });
+
+  describe("convertPositions", () => {
+    it("should throw MissingSignerError if signer is not provided", async () => {
+      const orderBuilderWithoutSigner = await OrderBuilder.make(ChainId.BnbMainnet);
+
+      await expect(
+        orderBuilderWithoutSigner.convertPositions({
+          negRiskOnChainId: ZeroHash,
+          indexSet: 0b011n,
+          amount: toWei(1),
+          isYieldBearing: false,
+        }),
+      ).rejects.toThrow(MissingSignerError);
+    });
+
+    it("should throw MissingSignerError if signer is not provided (yield bearing)", async () => {
+      const orderBuilderWithoutSigner = await OrderBuilder.make(ChainId.BnbMainnet);
+
+      await expect(
+        orderBuilderWithoutSigner.convertPositions({
+          negRiskOnChainId: ZeroHash,
+          indexSet: 0b011n,
+          amount: toWei(1),
+          isYieldBearing: true,
+        }),
+      ).rejects.toThrow(MissingSignerError);
     });
   });
 

@@ -20,6 +20,7 @@ import type {
   RedeemPositionsOptions,
   MergePositionsOptions,
   SplitPositionsOptions,
+  ConvertPositionsOptions,
   SetApprovalsResult,
   Address,
   MarketHelperValueInput,
@@ -842,6 +843,44 @@ export class OrderBuilder {
           amount,
         );
       }
+    }
+  }
+
+  /**
+   * Converts a set of NO positions in a NegRisk market.
+   *
+   * Burns the given amount of each NO position in the index set and returns the same amount
+   * of each complementary YES position, plus collateral (USDT) proportional to the number of
+   * NO positions converted minus one. If the market has a fee, it is taken from both the
+   * collateral and the YES tokens. Only NegRisk markets support conversions.
+   *
+   * @param {ConvertPositionsOptions} options - The options for converting positions.
+   * @param {string} options.negRiskOnChainId - The category's on-chain NegRisk market ID (32-byte hex), as returned by the API. Not the numeric API id of a market or category.
+   * @param {bigint} options.indexSet - Bitmask of the NO positions to convert, where bit `n` is the market's question at index `n`.
+   * @param {bigint} options.amount - The amount of each NO position to convert.
+   * @param {boolean} options.isYieldBearing - Whether this is a yield-bearing market.
+   * @returns {Promise<TransactionResult>} A promise that resolves to a `TransactionResult` object.
+   *
+   * @throws {MissingSignerError} If a signer was not provided when instantiating the OrderBuilder.
+   */
+  async convertPositions(options: ConvertPositionsOptions): Promise<TransactionResult> {
+    const { negRiskOnChainId, indexSet, amount, isYieldBearing } = options;
+
+    if (!this.contracts) {
+      throw new MissingSignerError();
+    }
+
+    const identifier = isYieldBearing ? "YIELD_BEARING_NEG_RISK_ADAPTER" : "NEG_RISK_ADAPTER";
+    const { contract, codec } = this.contracts[identifier];
+
+    if (this.predictAccount) {
+      const kernel = this.contracts.KERNEL.contract;
+      const encoded = codec.encodeFunctionData("convertPositions", [negRiskOnChainId, indexSet, amount]);
+      const calldata = this.encodeExecutionCalldata(this.addresses[identifier], encoded);
+
+      return this.handleTransaction(kernel.execute, this.executionMode, calldata);
+    } else {
+      return this.handleTransaction(contract.convertPositions, negRiskOnChainId, indexSet, amount);
     }
   }
 
