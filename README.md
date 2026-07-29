@@ -52,7 +52,7 @@ Predict supports interacting with the protocol using either a traditional Extern
 
 Before trading, you need to set approvals for ERC-1155 (`ConditionalTokens`) and ERC-20 (`USDT`). This can be achieved by sending a transaction to the respective contracts (see the [Contracts](#contracts) section) and approving both the `CTF_EXCHANGE` and the `NEG_RISK_CTF_EXCHANGE` or via the SDK utils.
 
-**Contracts**: The current deployed contracts can be found either in the [`Constants.ts`](./src/Constants.ts#32) file or in the [Deployed Contracts](https://docs.predict.fun/developers/deployed-contracts) documentation.
+**Contracts**: The current deployed contracts can be found either in the [`Constants.ts`](./src/Constants.ts#L32) file or in the [Deployed Contracts](https://docs.predict.fun/developers/deployed-contracts) documentation.
 
 The following example demonstrates how to set the necessary approvals using the SDK utils.
 
