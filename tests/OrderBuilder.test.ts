@@ -487,6 +487,41 @@ describe("OrderBuilder", () => {
         }),
       ).toThrow(InvalidExpirationError);
     });
+
+    it("should throw MissingSignerError when no signer is available", () => {
+      const builderWithoutSigner = OrderBuilder.make(ChainId.BnbMainnet);
+
+      expect(() =>
+        builderWithoutSigner.buildOrder("LIMIT", {
+          side: Side.BUY,
+          tokenId: "123",
+          makerAmount: toWei(10),
+          takerAmount: toWei(5),
+          feeRateBps: 0,
+        }),
+      ).toThrow(MissingSignerError);
+    });
+
+    it("should use the Predict account for maker and signer fields", () => {
+      const predictAccount = "0x1111111111111111111111111111111111111111";
+      const builder = OrderBuilder.make(ChainId.BnbMainnet, undefined, {
+        generateSalt,
+        predictAccount,
+      });
+
+      const order = builder.buildOrder("LIMIT", {
+        side: Side.BUY,
+        signer: "0xsigner",
+        maker: "0xmaker",
+        tokenId: "123",
+        makerAmount: toWei(10),
+        takerAmount: toWei(5),
+        feeRateBps: 0,
+      });
+
+      expect(order.maker).toBe(predictAccount);
+      expect(order.signer).toBe(predictAccount);
+    });
   });
 
   const _correctTypedDataTest = (isNegRisk: boolean, isYieldBearing: boolean) => {

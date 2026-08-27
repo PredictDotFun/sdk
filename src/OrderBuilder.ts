@@ -53,9 +53,11 @@ import type { ContractFunction, Optional } from "./internal/Types";
 import {
   concat,
   hashMessage,
+  hexlify,
   MaxInt256,
   MaxUint256,
   parseEther,
+  randomBytes,
   toBeHex,
   TypedDataEncoder,
   ZeroAddress,
@@ -117,12 +119,24 @@ interface OrderBuilderOptions {
 }
 
 /**
- * Default function to generate a random salt for the order.
+ * Generate an unpredictable salt for an order.
  *
- * @returns {string} A random numeric string value for the salt.
+ * Rejection sampling avoids the modulo bias that would otherwise be introduced
+ * when a 32-bit random value is reduced to the protocol's salt range.
+ *
+ * @returns A cryptographically random numeric string value for the salt.
  */
 export const generateOrderSalt = (): string => {
-  return String(Math.round(Math.random() * MAX_SALT));
+  const saltRange = BigInt(MAX_SALT) + 1n;
+  const randomRange = 1n << 32n;
+  const maxAccepted = randomRange - (randomRange % saltRange);
+
+  let sample: bigint;
+  do {
+    sample = BigInt(hexlify(randomBytes(4)));
+  } while (sample >= maxAccepted);
+
+  return String(sample % saltRange);
 };
 
 /**
@@ -1016,8 +1030,12 @@ export class OrderBuilder {
       throw new InvalidExpirationError();
     }
 
-    const signer = data?.signer ?? this.signer!.address;
-    if (data?.maker && signer !== data.maker) {
+    const signer = data?.signer ?? this.signer?.address ?? this.predictAccount;
+    if (!signer) {
+      throw new MissingSignerError();
+    }
+
+    if (!this.predictAccount && data?.maker && signer !== data.maker) {
       throw new MakerSignerMismatchError();
     }
 
